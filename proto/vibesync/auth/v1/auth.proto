@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package vibesync.auth.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Auth Service contracts. See ADR (Security) and docs/auth.md.
+//
+// Token model (ADR-Security):
+//   - Access token: short-lived JWT, 15m, signed RS256, kid header.
+//   - Refresh token: long-lived opaque random, rotated on each use.
+//   - Refresh rotation invalidates the previous token; reuse detection
+//     triggers family-wide revocation.
+
+// Authentication and session management.
+service AuthService {
+  // Exchange credentials for a token pair. Used by password login.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // Begin an OAuth2 authorization-code flow. Returns the provider URL the
+  // client should redirect to.
+  rpc BeginOAuth(BeginOAuthRequest) returns (BeginOAuthResponse);
+  // Complete an OAuth2 flow: exchange the authorization code for provider
+  // tokens, upsert the user, issue our own token pair.
+  rpc CompleteOAuth(CompleteOAuthRequest) returns (CompleteOAuthResponse);
+  // Rotate the access token using a refresh token. The refresh token is
+  // single-use; reuse is treated as a compromise.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  // Revoke a refresh token (and its family on rotation-detected reuse).
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  // Validate an access token and return its claims. Used by API Gateway and
+  // other services trusting a shared JWKS.
+  rpc Introspect(IntrospectRequest) returns (IntrospectResponse);
+  // Rotate signing keys. Operator-only.
+  rpc RotateKeys(RotateKeysRequest) returns (RotateKeysResponse);
+  // Public JWKS endpoint surface (also exposed as HTTP /api/v1/.well-known/jwks.json).
+  rpc GetJwks(GetJwksRequest) returns (GetJwksResponse);
+  // Fetch a fresh provider access token for a user. Refreshes internally if
+  // the stored token is expired. Used by the Provider Service to act on the
+  // user's behalf. Internal-use (service-to-service).
+  rpc GetProviderToken(GetProviderTokenRequest) returns (GetProviderTokenResponse);
+  // Register a new user with email + password. Creates the account and
+  // returns a token pair (same shape as Login).
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // List the streaming providers linked to a user's account (Spotify,
+  // YouTube). Used by the profile page.
+  rpc ListLinkedProviders(ListLinkedProvidersRequest) returns (ListLinkedProvidersResponse);
+}
+
+message TokenPair {
+  // Signed JWT, ~15m lifetime.
+  string access_token = 1;
+  // Opaque refresh token, ~30d lifetime, single-use + rotated.
+  string refresh_token = 2;
+  // Token type, always "Bearer".
+  string token_type = 3;
+  // Access token lifetime in seconds.
+  uint64 expires_in = 4;
+}
+
+// Authenticated session result shared by login and OAuth flows.
+message AuthSession {
+  TokenPair tokens = 1;
+  vibesync.common.v1.Id user_id = 2;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  // Optional: client-supplied device label for the session record.
+  optional string device_label = 3;
+}
+
+message LoginResponse {
+  AuthSession session = 1;
+}
+
+message BeginOAuthRequest {
+  // Provider to authorize against. See vibesync.provider.v1.ProviderName.
+  string provider = 1;
+  // Where to return the user after the provider redirects back. The auth
+  // service validates this against an allowlist.
+  string redirect_uri = 2;
+  // Optional PKCE challenge from the client (recommended for SPAs).
+  optional string code_challenge = 3;
+}
+
+message BeginOAuthResponse {
+  // Full URL the client should navigate to.
+  string authorization_url = 1;
+  // Random state the client must verify on callback.
+  string state = 2;
+}
+
+message CompleteOAuthRequest {
+  string provider = 1;
+  // Authorization code returned by the provider.
+  string code = 2;
+  // The state originally returned by BeginOAuth.
+  string state = 3;
+  // PKCE verifier if a challenge was supplied in BeginOAuth.
+  optional string code_verifier = 4;
+}
+
+message CompleteOAuthResponse {
+  AuthSession session = 1;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  AuthSession session = 1;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {
+  bool revoked = 1;
+}
+
+message IntrospectRequest {
+  string access_token = 1;
+}
+
+message IntrospectResponse {
+  bool active = 1;
+  vibesync.common.v1.Id user_id = 2;
+  vibesync.common.v1.SystemRole system_role = 3;
+  // Seconds since epoch when the access token expires.
+  google.protobuf.Timestamp expires_at = 4;
+  // Scopes attached to the token, space-delimited as per OAuth2.
+  string scope = 5;
+}
+
+// A public signing key in JWKS form. See ADR (Security) re. rotation.
+message JsonWebKey {
+  string kid = 1;
+  string kty = 2;   // "RSA"
+  string alg = 3;   // "RS256"
+  string use = 4;   // "sig"
+  string n = 5;     // RSA modulus, base64url
+  string e = 6;     // RSA exponent, base64url
+}
+
+message GetJwksRequest {}
+
+message GetJwksResponse {
+  repeated JsonWebKey keys = 1;
+}
+
+message RotateKeysRequest {
+  // Force immediate rotation regardless of the scheduled interval.
+  bool force = 1;
+}
+
+message RotateKeysResponse {
+  string new_kid = 1;
+}
+
+message GetProviderTokenRequest {
+  vibesync.common.v1.Id user_id = 1;
+  // Provider name ("spotify" or "google"), matching the OAuth registry key.
+  string provider = 2;
+}
+
+message GetProviderTokenResponse {
+  // Fresh access token for the provider API. Refreshed internally if expired.
+  string access_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message RegisterRequest {
+  string email = 1;
+  // 3-32 chars, lowercase letters/digits/underscore, must start with a letter.
+  string username = 2;
+  string password = 3;
+  optional string display_name = 4;
+  optional string device_label = 5;
+}
+
+message RegisterResponse {
+  AuthSession session = 1;
+}
+
+message ListLinkedProvidersRequest {
+  vibesync.common.v1.Id user_id = 1;
+}
+
+// A streaming provider linked to the user's account.
+message LinkedProvider {
+  // Provider name ("spotify" or "google").
+  string provider = 1;
+  google.protobuf.Timestamp linked_at = 2;
+}
+
+message ListLinkedProvidersResponse {
+  repeated LinkedProvider providers = 1;
+}

@@ -1,0 +1,16 @@
+# Grafana dashboard provider config. Points at the /var/lib/grafana/dashboards
+# mount where JSON dashboard files live. Dashboard JSONs are added in later
+# phases as the services they visualize come online.
+apiVersion: 1
+
+providers:
+  - name: vibesync
+    orgId: 1
+    folder: VibeSync
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

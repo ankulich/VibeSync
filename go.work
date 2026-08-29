@@ -1,0 +1,29 @@
+go 1.26.5
+
+// VibeSync Go workspace. See ADR-0001.
+//
+// Each entry is a Go module. Services (apps/*) and libraries (libs/*) are
+// independent modules so any one can be built, tested, or tagged without
+// pulling the others. Development uses these local paths; releases publish
+// by removing this file or rewriting the relevant modules.
+//
+// Add new modules here as they are introduced in Phases 4-11.
+
+use (
+	./apps/auth-service
+	./apps/media-service
+	./apps/playback-service
+	./apps/provider-service
+	./apps/room-service
+	./apps/sync-service
+	./apps/test-clients
+	./apps/user-service
+	./gen/go
+	./libs
+)
+
+// NOTE: tools/ is intentionally NOT a workspace member. It is a private
+// toolchain module that pins buf/protoc-gen-*/golangci-lint via `go tool`
+// and is invoked as `go tool -modfile=tools/go.mod <tool>`. Keeping it out
+// of go.work prevents transitive dependency conflicts between the linter's
+// graph and the application's graph from bleeding into the build.

@@ -1,0 +1,88 @@
+# golangci-lint v2 configuration. See ADR-0001.
+#
+# Run: make lint
+#   (equiv: GOWORK=off go -C tools tool golangci-lint run ../libs/... ../gen/go/...)
+#
+# v2 schema: top-level version, then linter/formatter settings under versioned
+# blocks. We enable a conservative-but-strict set; relax per-package via the
+# issues.exclude-rules below.
+
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26"
+
+linters:
+  default: none
+  enable:
+    - errcheck        # unchecked errors
+    - govet           # go vet
+    - ineffassign     # ineffectual assignments
+    - staticcheck     # the big one (includes old gosimple rules in v2)
+    - unused          # unused code
+    - misspell        # typos in comments/strings
+    - revive          # style, configurable
+    - gocritic        # opinionated, fast
+    - bodyclose       # http.Response.Body close
+    - rowserrcheck    # sql.Rows.Err
+    - sqlclosecheck   # sql.Rows/Stmt close
+    - durationcheck   # Duration multiply mistakes
+    - errorlint       # errors.Is/As usage
+    - nilerr          # nil-error returns
+    - nilnesserr      # nil path reasoning
+    - reassign        # reassigning package vars
+    - tparallel       # t.Parallel in tests
+    - unparam         # unused params/returns
+    - usestdlibvars   # use stdlib constants
+    - wastedassign    # wasted assignments
+
+  settings:
+    govet:
+      enable-all: false
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-naming
+        - name: error-strings
+        - name: error-return
+        - name: errorf
+        - name: exported
+          arguments: ["disableStutteringCheck"]
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: var-declaration
+        - name: var-naming
+
+  exclusions:
+    paths:
+      - "gen/go"           # generated code: never lint
+      - "third_party$"
+      - "builtin$"
+    rules:
+      # Test files may use globals and short helpers.
+      - path: "_test\\.go"
+        linters: [goconst, gocyclo, errcheck, revive, unparam]
+      # Error-handling in main/init deferred shutdowns is intentional.
+      - linters: [errcheck]
+        source: "defer .*Close\\(\\)|defer .*Shutdown"
+
+issues:
+  max-same-issues: 0
+  fix: false
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - vibesync

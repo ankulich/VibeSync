@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package vibesync.playback.v1;
+
+import "vibesync/common/v1/common.proto";
+import "vibesync/sync/v1/sync.proto";
+
+// Playback Service contracts. Full message shapes land in Phase 8 (Playback
+// Service); this file fixes the service surface. Playback only EXECUTES sync
+// commands issued by the Sync Service — it does not own playback state
+// authoritatively (see ADR-0006 / docs/sync/algorithm.md).
+
+message PlaybackTarget {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id media_id = 2;
+}
+
+message LoadMediaRequest {
+  PlaybackTarget target = 1;
+}
+
+message LoadMediaResponse {
+  bool accepted = 1;
+}
+
+message ApplySyncCommandRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.sync.v1.SyncState state = 2;
+}
+
+message ApplySyncCommandResponse {
+  bool applied = 1;
+}
+
+service PlaybackService {
+  rpc LoadMedia(LoadMediaRequest) returns (LoadMediaResponse);
+  rpc ApplySyncCommand(ApplySyncCommandRequest) returns (ApplySyncCommandResponse);
+}

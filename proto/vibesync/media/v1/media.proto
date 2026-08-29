@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package vibesync.media.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// Media Service contracts. Phase 9 extends the service with CRUD and queue
+// management RPCs. The Media Service owns the media catalog and per-room
+// queues; the Sync Service's CmdNext/CmdPrevious operate on the queue.
+
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_AUDIO = 1;
+  MEDIA_KIND_VIDEO = 2;
+}
+
+enum MediaSource {
+  MEDIA_SOURCE_UNSPECIFIED = 0;
+  MEDIA_SOURCE_PROVIDER = 1;
+  MEDIA_SOURCE_UPLOAD = 2;
+  MEDIA_SOURCE_CACHE = 3;
+}
+
+message Media {
+  vibesync.common.v1.Id id = 1;
+  MediaKind kind = 2;
+  MediaSource source = 3;
+  string external_ref = 4;
+  string title = 5;
+  string artist = 6;
+  google.protobuf.Duration duration = 7;
+  string cover_url = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message GetMediaRequest {
+  vibesync.common.v1.Id id = 1;
+}
+
+message GetMediaResponse {
+  Media media = 1;
+}
+
+// --- Phase 9 extensions: CRUD + queue ---
+
+message CreateMediaRequest {
+  MediaKind kind = 1;
+  MediaSource source = 2;
+  string external_ref = 3;
+  string title = 4;
+  string artist = 5;
+  uint64 duration_ms = 6;
+  string cover_url = 7;
+}
+
+message CreateMediaResponse {
+  Media media = 1;
+}
+
+message ListMediaRequest {
+  vibesync.common.v1.PageRequest page = 1;
+  optional string search = 2;
+}
+
+message ListMediaResponse {
+  repeated Media media = 1;
+  vibesync.common.v1.PageResponse page = 2;
+}
+
+message QueueItem {
+  vibesync.common.v1.Id media_id = 1;
+  uint32 position = 2;
+  google.protobuf.Timestamp added_at = 3;
+}
+
+message AddToQueueRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id media_id = 2;
+}
+
+message AddToQueueResponse {
+  QueueItem item = 1;
+}
+
+message GetQueueRequest {
+  vibesync.common.v1.Id room_id = 1;
+}
+
+message GetQueueResponse {
+  repeated QueueItem items = 1;
+}
+
+message RemoveFromQueueRequest {
+  vibesync.common.v1.Id room_id = 1;
+  uint32 position = 2;
+}
+
+message RemoveFromQueueResponse {
+  bool removed = 1;
+}
+
+service MediaService {
+  rpc GetMedia(GetMediaRequest) returns (GetMediaResponse);
+  rpc CreateMedia(CreateMediaRequest) returns (CreateMediaResponse);
+  rpc ListMedia(ListMediaRequest) returns (ListMediaResponse);
+  rpc AddToQueue(AddToQueueRequest) returns (AddToQueueResponse);
+  rpc GetQueue(GetQueueRequest) returns (GetQueueResponse);
+  rpc RemoveFromQueue(RemoveFromQueueRequest) returns (RemoveFromQueueResponse);
+}

@@ -1,0 +1,30 @@
+# Media Service — local development config.
+db:
+  host: localhost
+  port: 5432
+  user: vibesync
+  database: media
+  sslmode: disable
+  max_conns: 5
+
+redis:
+  addr: localhost:6379
+  db: 0
+
+kafka:
+  brokers:
+    - localhost:9094
+
+web:
+  addr: :8085
+  cors_allow_origins:
+    - http://localhost:5173
+  rate_limit_per_second: 10
+
+log:
+  level: debug
+  format: console
+
+otel:
+  endpoint: localhost:4317
+  sample_ratio: 1.0

@@ -1,0 +1,28 @@
+# buf code-generation. See ADR-0002 and ADR-0003.
+# Run: scripts/gen-proto.sh
+#
+# Uses LOCAL plugins (protoc-gen-go, protoc-gen-connect-go) resolved from
+# tools/go.mod rather than remote BSR plugins. This keeps codegen working in
+# environments where the BSR (buf.build) is unreachable, and pins plugin
+# versions in the repo via the toolchain module. The local plugin binaries
+# must be on PATH; scripts/gen-proto.sh arranges this via `go tool`.
+version: v2
+managed:
+  enabled: true
+  override:
+    # Auto-derive go_package so individual protos don't each need an option
+    # line. A proto at proto/vibesync/auth/v1/auth.proto gets go_package
+    # "vibesync/gen/go/vibesync/auth/v1".
+    - file_option: go_package_prefix
+      value: vibesync/gen/go
+plugins:
+  # Go message + enum types
+  - local: protoc-gen-go
+    out: gen/go
+    opt:
+      - paths=source_relative
+  # Connect-RPC Go services (gRPC-over-h2 + HTTP/JSON from one schema)
+  - local: protoc-gen-connect-go
+    out: gen/go
+    opt:
+      - paths=source_relative

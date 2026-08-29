@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package vibesync.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Shared types used across all VibeSync services. See ADR-0003, ADR-0009.
+
+// Identifier wrapping a canonical ULID string. See ADR-0009.
+// Always the 26-char canonical Crockford base32 form. Wire type is string so
+// clients can copy/compare without parsing.
+message Id {
+  string value = 1;
+}
+
+// Cursor-based pagination request. Forward-only.
+message PageRequest {
+  // Opaque cursor returned by a previous PageResponse.next_cursor. Empty
+  // means "from the beginning".
+  string cursor = 1;
+  // Server clamps to [1, 200]; default 50.
+  uint32 limit = 2;
+}
+
+// Cursor-based pagination response. Use next_cursor to fetch the next page;
+// an empty next_cursor means there is no more data.
+message PageResponse {
+  string next_cursor = 1;
+  // Total is best-effort: services MAY omit it (0) when expensive to compute.
+  uint64 total = 2;
+}
+
+// --- RBAC ---------------------------------------------------------------
+// See ADR (RBAC). System roles apply globally; room roles are scoped to a
+// room. Stored as user-friendly enum values on the wire.
+
+enum SystemRole {
+  SYSTEM_ROLE_UNSPECIFIED = 0;
+  SYSTEM_ROLE_GUEST = 1;
+  SYSTEM_ROLE_USER = 2;
+  SYSTEM_ROLE_MODERATOR = 3;
+  SYSTEM_ROLE_ADMINISTRATOR = 4;
+}
+
+enum RoomRole {
+  ROOM_ROLE_UNSPECIFIED = 0;
+  ROOM_ROLE_GUEST = 1;
+  ROOM_ROLE_MEMBER = 2;
+  ROOM_ROLE_MODERATOR = 3;
+  ROOM_ROLE_OWNER = 4;
+}
+
+// --- Common value types -------------------------------------------------
+
+// A bounded [min, max] time interval in media position, used by sync.
+message TimeRange {
+  google.protobuf.Timestamp start_at = 1;
+  google.protobuf.Timestamp end_at = 2;
+}
+
+// Repeated-string helper for tags, labels, and capabilities.
+message StringList {
+  repeated string values = 1;
+}
+
+// Standard error detail payload carried as google.rpc.ErrorInfo metadata.
+// See libs/errors. Keys are stable string codes; see docs/errors.md.
+message ErrorInfo {
+  string reason = 1;      // e.g. "ROOM_FULL"
+  string domain = 2;      // e.g. "vibesync.room"
+  map<string, string> metadata = 3;
+}

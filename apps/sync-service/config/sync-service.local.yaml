@@ -1,0 +1,42 @@
+# Sync Service — local development config.
+db:
+  host: localhost
+  port: 5432
+  user: vibesync
+  database: sync
+  sslmode: disable
+  max_conns: 5
+
+redis:
+  addr: localhost:6379
+  db: 0
+
+kafka:
+  brokers:
+    - localhost:9094
+  consumer_topic: room.created.v1
+  consumer_group_id: sync-service
+
+sync:
+  heartbeat_interval: 1s
+  host_timeout: 5s
+  snapshot_interval: 5s
+  controller_kp: 0.15
+  controller_ki: 0.02
+  controller_integral_clamp_ms: 200
+  recover_ring_buffer_size: 32
+  discontinuity_threshold_ms: 2000
+
+web:
+  addr: :8083
+  cors_allow_origins:
+    - http://localhost:5173
+  rate_limit_per_second: 10
+
+log:
+  level: debug
+  format: console
+
+otel:
+  endpoint: localhost:4317
+  sample_ratio: 1.0

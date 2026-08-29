@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package vibesync.notification.v1;
+
+import "vibesync/common/v1/common.proto";
+
+// Notification Service contracts. Full shapes land in a later phase.
+// Notification is primarily a Kafka consumer; RPC surface is minimal.
+
+message Notification {
+  vibesync.common.v1.Id id = 1;
+  vibesync.common.v1.Id user_id = 2;
+  string kind = 3;     // e.g. "room.invited", "friend.online"
+  string title = 4;
+  string body = 5;
+  map<string, string> data = 6;
+}
+
+message SendNotificationRequest {
+  Notification notification = 1;
+}
+
+message SendNotificationResponse {
+  vibesync.common.v1.Id id = 1;
+  bool accepted = 2;
+}
+
+service NotificationService {
+  rpc SendNotification(SendNotificationRequest) returns (SendNotificationResponse);
+}

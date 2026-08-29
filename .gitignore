@@ -1,0 +1,52 @@
+# --- Go ---
+/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work.sum
+coverage.out
+coverage.html
+
+# --- Service binaries ---
+/apps/*/bin/
+/bin/
+
+# --- Local toolchain (built from tools/go.mod) ---
+/.tools/
+/tools/.bin/
+
+# --- Workspace-local build cache (Windows Defender workaround) ---
+/.tmp/
+/.cache/
+/libs/.tmp/
+/libs/.cache/
+
+# --- Generated protobuf (committed by policy; uncomment to ignore) ---
+# /gen/go/
+
+# --- Frontend (future) ---
+/node_modules/
+/apps/frontend/dist/
+/apps/frontend/node_modules/
+
+# --- Local runtime data ---
+/.env
+/.env.local
+/.env.*.local
+/deployments/docker-compose/data/
+*.log
+
+# --- Editors / OS ---
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/settings.json

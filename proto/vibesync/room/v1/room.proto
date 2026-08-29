@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package vibesync.room.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Room Service contracts — room lifecycle, membership, and listing.
+// Phase 6 extends the service with lifecycle + membership management RPCs.
+
+enum RoomVisibility {
+  ROOM_VISIBILITY_UNSPECIFIED = 0;
+  ROOM_VISIBILITY_PUBLIC = 1;
+  ROOM_VISIBILITY_UNLISTED = 2;
+  ROOM_VISIBILITY_PRIVATE = 3;
+}
+
+message Room {
+  vibesync.common.v1.Id id = 1;
+  string slug = 2;
+  string name = 3;
+  string description = 4;
+  RoomVisibility visibility = 5;
+  vibesync.common.v1.Id owner_id = 6;
+  uint32 max_members = 7;
+  uint32 member_count = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// Member is a user's membership in a room. Returned by GetMembers and used
+// for role management.
+message Member {
+  vibesync.common.v1.Id user_id = 1;
+  vibesync.common.v1.RoomRole role = 2;
+  google.protobuf.Timestamp joined_at = 3;
+}
+
+message CreateRoomRequest {
+  string name = 1;
+  optional string description = 2;
+  RoomVisibility visibility = 3;
+  optional uint32 max_members = 4;
+}
+
+message CreateRoomResponse {
+  Room room = 1;
+}
+
+message GetRoomRequest {
+  oneof lookup {
+    vibesync.common.v1.Id id = 1;
+    string slug = 2;
+  }
+}
+
+message GetRoomResponse {
+  Room room = 1;
+}
+
+message ListRoomsRequest {
+  vibesync.common.v1.PageRequest page = 1;
+  optional string search = 2;
+  optional RoomVisibility visibility = 3;
+}
+
+message ListRoomsResponse {
+  repeated Room rooms = 1;
+  vibesync.common.v1.PageResponse page = 2;
+}
+
+message JoinRoomRequest {
+  vibesync.common.v1.Id room_id = 1;
+  optional string invite_code = 2;
+}
+
+message JoinRoomResponse {
+  Room room = 1;
+  vibesync.common.v1.RoomRole assigned_role = 2;
+}
+
+// --- Phase 6 extensions: lifecycle + membership ---
+
+message UpdateRoomRequest {
+  vibesync.common.v1.Id id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional RoomVisibility visibility = 4;
+  optional uint32 max_members = 5;
+}
+
+message UpdateRoomResponse {
+  Room room = 1;
+}
+
+message DeleteRoomRequest {
+  vibesync.common.v1.Id id = 1;
+}
+
+message DeleteRoomResponse {}
+
+message LeaveRoomRequest {
+  vibesync.common.v1.Id room_id = 1;
+}
+
+message LeaveRoomResponse {
+  bool left = 1;
+}
+
+message GetMembersRequest {
+  vibesync.common.v1.Id room_id = 1;
+}
+
+message GetMembersResponse {
+  repeated Member members = 1;
+}
+
+message KickMemberRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id user_id = 2;
+}
+
+message KickMemberResponse {
+  bool kicked = 1;
+}
+
+message UpdateMemberRoleRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id user_id = 2;
+  vibesync.common.v1.RoomRole role = 3;
+}
+
+message UpdateMemberRoleResponse {
+  Member member = 1;
+}
+
+service RoomService {
+  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);
+  rpc ListRooms(ListRoomsRequest) returns (ListRoomsResponse);
+  rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
+  rpc UpdateRoom(UpdateRoomRequest) returns (UpdateRoomResponse);
+  rpc DeleteRoom(DeleteRoomRequest) returns (DeleteRoomResponse);
+  rpc LeaveRoom(LeaveRoomRequest) returns (LeaveRoomResponse);
+  rpc GetMembers(GetMembersRequest) returns (GetMembersResponse);
+  rpc KickMember(KickMemberRequest) returns (KickMemberResponse);
+  rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+}

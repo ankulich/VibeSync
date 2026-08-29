@@ -1,0 +1,34 @@
+# User Service — local development config.
+# Secrets come from env, NOT this file.
+
+db:
+  host: localhost
+  port: 5432
+  user: vibesync
+  database: user          # the logical DB created by compose init
+  sslmode: disable
+  max_conns: 5
+
+redis:
+  addr: localhost:6379
+  db: 0
+
+kafka:
+  brokers:
+    - localhost:9094       # EXTERNAL listener for host dev
+  topic: user.created.v1
+  consumer_group_id: user-service
+
+web:
+  addr: :8081
+  cors_allow_origins:
+    - http://localhost:5173
+  rate_limit_per_second: 10
+
+log:
+  level: debug
+  format: console
+
+otel:
+  endpoint: localhost:4317
+  sample_ratio: 1.0

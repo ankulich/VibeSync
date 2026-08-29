@@ -1,0 +1,18 @@
+# TypeScript code-generation for the frontend. Run via scripts/gen-frontend.sh.
+# Uses the npm-installed protoc-gen-es + protoc-gen-connect-es plugins from
+# apps/frontend/node_modules/.bin (added to PATH by the script).
+version: v2
+managed:
+  enabled: true
+plugins:
+  # TypeScript message + enum types (protobuf-es)
+  - local: protoc-gen-es
+    out: apps/frontend/src/gen
+    opt:
+      - target=ts
+  # TypeScript Connect clients (connect-es)
+  - local: protoc-gen-connect-es
+    out: apps/frontend/src/gen
+    opt:
+      - target=ts
+      - import_extension=none

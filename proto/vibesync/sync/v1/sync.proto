@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package vibesync.sync.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Sync Service contracts — the authoritative clock and playback-state owner.
+//
+// See docs/sync/algorithm.md and ADR-0006. Key invariants:
+//
+//   1. The Sync Service is the SINGLE SOURCE OF TRUTH for playback position,
+//      rate, and host identity in a room. Playback Service only executes the
+//      commands derived from this state (see playback/v1).
+//
+//   2. Time is represented as a pair:
+//        - media_time_ms  : position in the current media item, in ms.
+//        - wall_time_ms   : when media_time was last sampled, measured on the
+//                           server's monotonic clock converted to UTC ms.
+//      Clients advance media_time locally as:
+//          media_time_ms = sample.media_time_ms
+//                        + (now() - sample.wall_time_ms) * playback_rate
+//      This decouples "where are we" from "when did we ask".
+//
+//   3. An "epoch" is a monotonically increasing counter bumped on any
+//      authoritative state change (play/pause/seek/source change/host
+//      migration). Updates carry the epoch they were derived from so clients
+//      can drop stale or out-of-order frames.
+//
+//   4. Host migration: the host is the client whose media source drives the
+//      authoritative clock. If the host leaves, the Sync Service selects a
+//      successor and bumps the epoch; old commands are fenced by the new
+//      epoch's fencing token.
+// =============================================================================
+
+service SyncService {
+  // Subscribe to authoritative updates for a room. Server-streaming: the
+  // client holds this open for the lifetime of its session and receives
+  // SubscribeResponse messages (incremental updates + periodic snapshots).
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+
+  // Heartbeat. Clients send this on a fixed cadence (default 1s, configurable
+  // per room). The server uses the round-trip timing to estimate RTT and
+  // clock offset, and the embedded client_media_time to compute drift.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Request an authoritative state change. Originator must hold the host role
+  // (or a moderator). The server validates, applies, bumps the epoch, and the
+  // resulting SyncFrame is broadcast via the Subscribe stream.
+  rpc Command(CommandRequest) returns (CommandResponse);
+
+  // Recover after a disconnect. The client supplies the last epoch it applied
+  // successfully; the server replays any frames since (bounded) or, if the
+  // gap is too large, returns a full snapshot.
+  rpc Recover(RecoverRequest) returns (RecoverResponse);
+}
+
+// -----------------------------------------------------------------------------
+// Core state types
+// -----------------------------------------------------------------------------
+
+enum PlaybackStatus {
+  PLAYBACK_STATUS_UNSPECIFIED = 0;
+  PLAYBACK_STATUS_PAUSED = 1;
+  PLAYBACK_STATUS_PLAYING = 2;
+  PLAYBACK_STATUS_BUFFERING = 3;
+  PLAYBACK_STATUS_ENDED = 4;
+}
+
+// Authoritative playback state for a room. This is the contract every client
+// renders against. See header comment for the time model.
+message SyncState {
+  vibesync.common.v1.Id room_id = 1;
+  // Currently loaded media. Empty when the queue is empty.
+  vibesync.common.v1.Id media_id = 2;
+  PlaybackStatus status = 3;
+  // Position within media, in milliseconds.
+  int64 media_time_ms = 4;
+  // Server wall-clock (UTC) at which media_time was last sampled, in ms
+  // since the Unix epoch.
+  int64 wall_time_ms = 5;
+  // Playout rate (1.0 = realtime). 0.0 when paused.
+  double playback_rate = 6;
+  // Monotonic counter bumped on every authoritative change. Clients MUST
+  // ignore frames whose epoch is older than the latest applied.
+  uint64 epoch = 7;
+  // The peer currently hosting the authoritative clock.
+  vibesync.common.v1.Id host_id = 8;
+  // Fencing token used by Playback Service to reject stale commands after a
+  // host migration. Bumped together with epoch on host changes.
+  uint64 fencing_token = 9;
+  // When the current epoch became authoritative.
+  google.protobuf.Timestamp epoch_started_at = 10;
+}
+
+// A point-in-time assessment of synchronization quality for a room, derived
+// from heartbeats. Published to Kafka as sync.updated.v1 and pushed to clients
+// periodically.
+message SyncSnapshot {
+  SyncState state = 1;
+  // Estimated maximum drift across active peers, in ms. Target < 50ms.
+  int32 drift_estimate_ms = 2;
+  // 0..100 confidence in the current state. Lower confidence widens the
+  // jitter buffer; below a threshold the server may force a re-snapshot.
+  uint32 confidence = 3;
+  // Number of peers whose latest heartbeat is within the liveness window.
+  uint32 active_peers = 4;
+  // Estimated median RTT across active peers, in ms.
+  int32 median_rtt_ms = 5;
+  google.protobuf.Timestamp captured_at = 6;
+}
+
+// -----------------------------------------------------------------------------
+// Subscribe
+// -----------------------------------------------------------------------------
+
+message SubscribeRequest {
+  vibesync.common.v1.Id room_id = 1;
+  // The highest epoch the client has already applied (0 if fresh). Lets the
+  // server decide between an incremental replay and a full snapshot.
+  uint64 last_applied_epoch = 2;
+}
+
+// One frame on the subscribe stream. Exactly one payload field is set.
+message SubscribeResponse {
+  google.protobuf.Timestamp sent_at = 1;
+  oneof payload {
+    // Incremental authoritative update — most common.
+    SyncState update = 2;
+    // Full room sync assessment, sent periodically or on demand.
+    SyncSnapshot snapshot = 3;
+    // Host migration notice. Clients should re-evaluate their role.
+    HostMigration host_migration = 4;
+  }
+}
+
+// Broadcast when the authoritative host changes. Carries the fencing token
+// the new host must include in Playback commands; older commands bearing a
+// lower token are rejected.
+message HostMigration {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id previous_host_id = 2;
+  vibesync.common.v1.Id new_host_id = 3;
+  uint64 new_epoch = 4;
+  uint64 new_fencing_token = 5;
+  google.protobuf.Timestamp at = 6;
+}
+
+// -----------------------------------------------------------------------------
+// Heartbeat — drives RTT / drift estimation
+// -----------------------------------------------------------------------------
+
+message HeartbeatRequest {
+  vibesync.common.v1.Id room_id = 1;
+  // The highest epoch the client has applied. Used for liveness, not for
+  // correctness (the Subscribe stream owns correctness).
+  uint64 client_epoch = 2;
+  // Client's view of media position at send time, in ms.
+  int64 client_media_time_ms = 3;
+  // Client's local wall-clock at send time, in ms since Unix epoch.
+  int64 client_wall_time_ms = 4;
+  // The wall_time_ms the client most recently received from the server, echoed
+  // back so the server can compute round-trip time without trusting the
+  // client clock for ordering.
+  int64 last_server_wall_time_ms = 5;
+}
+
+message HeartbeatResponse {
+  // Server wall-clock at response time, in ms since Unix epoch.
+  int64 server_wall_time_ms = 1;
+  // Server's current authoritative media position at response time.
+  int64 server_media_time_ms = 2;
+  // The epoch the response corresponds to.
+  uint64 epoch = 3;
+  // Per-client drift estimate computed from this heartbeat, in ms. Positive
+  // means the client is ahead of the authoritative clock.
+  int32 client_drift_ms = 4;
+  // Smoothed RTT estimate for this client, in ms.
+  int32 smoothed_rtt_ms = 5;
+}
+
+// -----------------------------------------------------------------------------
+// Command — request authoritative state changes
+// -----------------------------------------------------------------------------
+
+enum CommandKind {
+  COMMAND_KIND_UNSPECIFIED = 0;
+  COMMAND_KIND_PLAY = 1;
+  COMMAND_KIND_PAUSE = 2;
+  COMMAND_KIND_SEEK = 3;
+  COMMAND_KIND_SET_RATE = 4;
+  COMMAND_KIND_LOAD_MEDIA = 5;
+  COMMAND_KIND_NEXT = 6;
+  COMMAND_KIND_PREVIOUS = 7;
+}
+
+message CommandRequest {
+  vibesync.common.v1.Id room_id = 1;
+  CommandKind kind = 2;
+  // Seek target in ms (KIND_SEEK).
+  optional int64 seek_to_ms = 3;
+  // Playout rate (KIND_SET_RATE), 0.25..4.0.
+  optional double rate = 4;
+  // Media id (KIND_LOAD_MEDIA).
+  optional vibesync.common.v1.Id media_id = 5;
+  // Originator-supplied fencing token from the most recent HostMigration or
+  // Subscribe. The server rejects commands whose token is stale.
+  uint64 fencing_token = 6;
+}
+
+message CommandResponse {
+  // The epoch the command produced. Clients should expect a SyncFrame with
+  // at least this epoch on their Subscribe stream.
+  uint64 epoch = 1;
+  bool accepted = 2;
+  // Empty on success; reason code when rejected (e.g. "STALE_FENCING_TOKEN",
+  // "NOT_HOST").
+  string reason = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Recover
+// -----------------------------------------------------------------------------
+
+message RecoverRequest {
+  vibesync.common.v1.Id room_id = 1;
+  uint64 since_epoch = 2;
+}
+
+// Either an incremental replay (frames) or a full snapshot. The server picks
+// based on how large the gap is.
+message RecoverResponse {
+  oneof payload {
+    SyncSnapshot snapshot = 1;
+    SubscribeResponseBatch frames = 2;
+  }
+}
+
+message SubscribeResponseBatch {
+  repeated SubscribeResponse frames = 1;
+}

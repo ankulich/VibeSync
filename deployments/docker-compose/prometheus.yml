@@ -1,0 +1,47 @@
+# Prometheus scrape config. See ADR-0008.
+#
+# Scrapes:
+#   - itself
+#   - the OTel collector's Prometheus exporter (OTLP-pushed RPC metrics)
+#   - each VibeSync service's /metrics endpoint (Go + process metrics)
+#
+# Services run on the host (go run) and listen on :8080-:8086, mounting
+# /metrics on their main Gin listener. host.docker.internal lets the
+# container reach host processes.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: vibesync-local
+    environment: dev
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # OTel collector re-exports service metrics (rpc_server_duration etc.) in
+  # Prometheus format on :8889.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # Each VibeSync service's direct /metrics endpoint (Go runtime + process).
+  # Services run as containers on the vibesync network.
+  - job_name: vibesync-services
+    static_configs:
+      - targets:
+          - auth-service:8080
+          - user-service:8081
+          - room-service:8082
+          - sync-service:8083
+          - playback-service:8084
+          - media-service:8085
+          - provider-service:8086
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance

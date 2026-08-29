@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package vibesync.analytics.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Analytics Service contracts. Primarily a Kafka consumer writing to Mongo;
+// RPC surface exposes queries for dashboards.
+
+message Event {
+  vibesync.common.v1.Id id = 1;
+  string name = 2;                  // e.g. "playback.started"
+  google.protobuf.Timestamp at = 3;
+  vibesync.common.v1.Id actor_id = 4;
+  map<string, string> props = 5;
+}
+
+message IngestRequest {
+  repeated Event events = 1;
+}
+
+message IngestResponse {
+  uint64 accepted = 1;
+}
+
+message QueryRequest {
+  string name = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  vibesync.common.v1.PageRequest page = 4;
+}
+
+message QueryResponse {
+  repeated Event events = 1;
+  vibesync.common.v1.PageResponse page = 2;
+}
+
+service AnalyticsService {
+  rpc Ingest(IngestRequest) returns (IngestResponse);
+  rpc Query(QueryRequest) returns (QueryResponse);
+}

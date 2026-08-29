@@ -1,0 +1,67 @@
+# Prometheus alerting rules. Loaded via rule_files in prometheus.yml.
+# Alerts are visible in the Prometheus UI (/alerts) — no Alertmanager in the
+# dev stack (add one for production routing to Slack/PagerDuty).
+
+groups:
+  - name: vibesync-service-health
+    rules:
+      # A service's /metrics endpoint is unreachable.
+      - alert: ServiceDown
+        expr: up{job="vibesync-services"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: "The metrics endpoint for {{ $labels.instance }} has been unreachable for 1 minute."
+
+      # The OTel collector is unreachable.
+      - alert: CollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel collector is down"
+          description: "The OpenTelemetry collector's Prometheus exporter is unreachable. Traces and RPC metrics are not flowing."
+
+  - name: vibesync-rpc-quality
+    rules:
+      # RPC error rate above 5% (non-OK status codes).
+      - alert: HighErrorRate
+        expr: |
+          sum by (service_name) (rate(rpc_server_duration_milliseconds_count{rpc_grpc_status_code!="0"}[5m]))
+          /
+          sum by (service_name) (rate(rpc_server_duration_milliseconds_count[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.service_name }}"
+          description: "RPC error rate is above 5% for 5 minutes (current: {{ $value | humanizePercentage }})."
+
+      # RPC p99 latency above 1 second.
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service_name, le) (rate(rpc_server_duration_milliseconds_bucket[5m]))
+          ) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.service_name }}"
+          description: "RPC p99 latency is above 1 second for 5 minutes (current: {{ $value | humanize }}ms)."
+
+  - name: vibesync-scrape-health
+    rules:
+      # Scrapes are slow (target overloaded or network issue).
+      - alert: ScrapeSlow
+        expr: scrape_duration_seconds{job="vibesync-services"} > 2
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Slow scrape for {{ $labels.instance }}"
+          description: "Metrics scrape is taking over 2 seconds (current: {{ $value | humanizeDuration }})."

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package vibesync.storage.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Storage Service contracts. Wraps MinIO for avatars and uploads.
+
+enum StorageClass {
+  STORAGE_CLASS_UNSPECIFIED = 0;
+  STORAGE_CLASS_AVATAR = 1;
+  STORAGE_CLASS_UPLOAD = 2;
+  STORAGE_CLASS_MEDIA_CACHE = 3;
+}
+
+message PresignUploadRequest {
+  StorageClass class = 1;
+  string filename = 2;
+  string content_type = 3;
+}
+
+message PresignUploadResponse {
+  string object_key = 1;
+  string upload_url = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message PresignDownloadRequest {
+  string object_key = 1;
+}
+
+message PresignDownloadResponse {
+  string download_url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+service StorageService {
+  rpc PresignUpload(PresignUploadRequest) returns (PresignUploadResponse);
+  rpc PresignDownload(PresignDownloadRequest) returns (PresignDownloadResponse);
+}

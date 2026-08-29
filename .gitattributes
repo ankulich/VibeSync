@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.go text eol=lf
+*.proto text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+
+# Treat generated code as text but don't diff-explore
+/gen/go/** linguist-generated=true
+
+# Shell scripts
+*.sh text eol=lf

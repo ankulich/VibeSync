@@ -1,0 +1,56 @@
+# OpenTelemetry Collector config for local dev. See ADR-0008.
+#
+# Receives OTLP (gRPC :4317, HTTP :4318) from VibeSync services, then:
+#   - exports traces to Jaeger (OTLP gRPC :14250)
+#   - exports metrics to Prometheus (the collector exposes :8889 in pull mode)
+#   - logs everything to stdout for quick debugging
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Drop high-cardinality attributes that blow up Prometheus in dev.
+  # Tunable per environment; conservative defaults here.
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 2s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+exporters:
+  # Traces → Jaeger (which speaks OTLP in the all-in-one image).
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Metrics → Prometheus scrape endpoint.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  # Local debug.
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+  telemetry:
+    logs:
+      level: info

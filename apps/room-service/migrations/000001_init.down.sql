@@ -1,0 +1,5 @@
+-- Reverse of 000001.
+DROP TABLE IF EXISTS outbox;
+DROP TABLE IF EXISTS room_invite;
+DROP TABLE IF EXISTS room_members;
+DROP TABLE IF EXISTS rooms;

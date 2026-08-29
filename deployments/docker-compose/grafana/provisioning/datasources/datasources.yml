@@ -1,0 +1,25 @@
+# Grafana datasource provisioning. Auto-loaded on container start.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData:
+      tracesToLogs:
+        datasourceUid: ''
+
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1

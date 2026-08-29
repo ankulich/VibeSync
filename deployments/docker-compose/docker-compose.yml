@@ -1,0 +1,485 @@
+# VibeSync local infrastructure stack. See ADR (Databases, Observability).
+#
+# Boots every backing service a VibeSync microservice needs in dev:
+#   - Postgres  : relational store (users, rooms, permissions, oauth)
+#   - Redis     : sessions, presence, playback cache, locks
+#   - MongoDB   : events, logs, analytics
+#   - Kafka     : event bus (KRaft mode, no Zookeeper)
+#   - MinIO     : object storage (avatars, uploads, media cache)
+#   - OTel      : telemetry collector (receives OTLP, exports to Prom + logs)
+#   - Prometheus: metrics scraper
+#   - Grafana   : dashboards
+#   - Coturn    : TURN/STUN server for WebRTC
+#
+# Bring up:    docker compose -f deployments/docker-compose/docker-compose.yml up -d
+# Tear down:   docker compose -f deployments/docker-compose/docker-compose.yml down -v
+#
+# Health: each service has a healthcheck so `docker compose up --wait` blocks
+# until the whole stack is ready. The `_healthcheck-retries` are tuned for a
+# cold start on a developer laptop.
+
+name: vibesync
+
+# Shared network so services can resolve each other by name.
+networks:
+  vibesync:
+    driver: bridge
+
+volumes:
+  pg_data:
+  redis_data:
+  mongo_data:
+  minio_data:
+  kafka_data:
+  prom_data:
+  grafana_data:
+
+services:
+
+  # --- Relational store --------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: vibesync-postgres
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      POSTGRES_USER: vibesync
+      POSTGRES_PASSWORD: vibesync
+      POSTGRES_DB: vibesync
+      # Init multiple service databases so each microservice gets its own
+      # logical DB. The init script runs once on first boot (empty volume).
+      POSTGRES_MULTIPLE_DATABASES: auth,user,room,sync,playback,media,storage,provider
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres-multi-db.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vibesync -d vibesync"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # --- Key/value + presence ---------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: vibesync-redis
+    restart: unless-stopped
+    networks: [vibesync]
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- Document store (events, logs, analytics) -------------------------
+  mongo:
+    image: mongo:7
+    container_name: vibesync-mongo
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: vibesync
+      MONGO_INITDB_ROOT_PASSWORD: vibesync
+      MONGO_INITDB_DATABASE: vibesync
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: >
+        ["CMD-SHELL",
+        "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --- Event bus ---------------------------------------------------------
+  # KRaft mode (Kafka's own consensus) — no Zookeeper dependency.
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: vibesync-kafka
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      # KRaft mode (no Zookeeper).
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Topic defaults.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # --- Object storage ----------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: vibesync-minio
+    restart: unless-stopped
+    networks: [vibesync]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: vibesync
+      MINIO_ROOT_PASSWORD: vibesync123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- TURN/STUN for WebRTC ---------------------------------------------
+  coturn:
+    image: coturn/coturn:latest
+    container_name: vibesync-coturn
+    restart: unless-stopped
+    networks: [vibesync]
+    # Dev-mode config: no TLS (production uses certs via VB_TURN_CERT_*).
+    # Realm is vibesync.local; static long-term-cred user "vibe" / "vibe".
+    command: >
+      -n --log-file=stdout
+      --min-port=49160 --max-port=49200
+      --realm=vibesync.local --server-name=vibesync.local
+      --lt-cred-mech --user=vibe:vibe
+      --no-cli --no-tls --no-dtls
+      --fingerprint
+    ports:
+      - "3478:3478"       # STUN/TURN
+      - "3478:3478/udp"
+      - "5349:5349"       # TURNS (TCP) — unused in dev, mapped for parity
+      - "49160-49200:49160-49200/udp"  # relay range
+    healthcheck:
+      # No built-in health endpoint; verify the listener responds to STUN.
+      test: ["CMD-SHELL", "(echo -ne '\x00\x01\x00\x00' | timeout 2 nc -u localhost 3478 && true) || true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # --- Telemetry ---------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: vibesync-otel
+    restart: unless-stopped
+    networks: [vibesync]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP/gRPC (services push here)
+      - "4318:4318"   # OTLP/HTTP
+    depends_on:
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:13133/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Jaeger receives traces from the collector so we can inspect them in a UI.
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: vibesync-jaeger
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:14269/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Metrics -----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vibesync-prometheus
+    restart: unless-stopped
+    networks: [vibesync]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prom_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vibesync-grafana
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Provision datasource + dashboards from mounted config.
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Go microservices -----------------------------------------------------
+  # All 7 services. Configured entirely via VB_* env vars (no config files
+  # needed in containers). Each connects to postgres/redis/kafka by container
+  # name on the shared vibesync network.
+
+  auth-service:
+    build:
+      context: ../..
+      dockerfile: apps/auth-service/Dockerfile
+    container_name: vibesync-auth
+    restart: unless-stopped
+    networks: [vibesync]
+    environment: &go-env
+      VB_DB_HOST: postgres
+      VB_DB_PASSWORD: vibesync
+      VB_REDIS_ADDR: redis:6379
+      VB_KAFKA_BROKERS: kafka:9092
+      VB_OTEL_ENDPOINT: otel-collector:4317
+      VB_AUTH_KEY_MASTER: ${VB_AUTH_KEY_MASTER:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  user-service:
+    build:
+      context: ../..
+      dockerfile: apps/user-service/Dockerfile
+    container_name: vibesync-user
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      <<: *go-env
+      VB_KAFKA_CONSUMER_TOPIC: user.created.v1
+      VB_KAFKA_CONSUMER_GROUP_ID: user-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  room-service:
+    build:
+      context: ../..
+      dockerfile: apps/room-service/Dockerfile
+    container_name: vibesync-room
+    restart: unless-stopped
+    networks: [vibesync]
+    environment: *go-env
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8082/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  sync-service:
+    build:
+      context: ../..
+      dockerfile: apps/sync-service/Dockerfile
+    container_name: vibesync-sync
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      <<: *go-env
+      VB_KAFKA_CONSUMER_TOPIC: room.created.v1
+      VB_KAFKA_CONSUMER_GROUP_ID: sync-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  playback-service:
+    build:
+      context: ../..
+      dockerfile: apps/playback-service/Dockerfile
+    container_name: vibesync-playback
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      <<: *go-env
+      VB_KAFKA_TOPIC: sync.updated.v1
+      VB_KAFKA_CONSUMER_GROUP_ID: playback-service
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8084/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  media-service:
+    build:
+      context: ../..
+      dockerfile: apps/media-service/Dockerfile
+    container_name: vibesync-media
+    restart: unless-stopped
+    networks: [vibesync]
+    environment: *go-env
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8085/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  provider-service:
+    build:
+      context: ../..
+      dockerfile: apps/provider-service/Dockerfile
+    container_name: vibesync-provider
+    restart: unless-stopped
+    networks: [vibesync]
+    environment:
+      <<: *go-env
+      VB_AUTH_SERVICE_ADDR: http://auth-service:8080
+    ports:
+      - "8086:8086"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8086/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # --- Frontend ------------------------------------------------------------
+  # Serves the built React app via nginx and proxies Connect-RPC calls to the
+  # Go services on the vibesync network.
+  frontend:
+    build:
+      context: ../../apps/frontend
+      dockerfile: Dockerfile
+    container_name: vibesync-frontend
+    restart: unless-stopped
+    networks: [vibesync]
+    ports:
+      - "8090:80"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

@@ -1,0 +1,25 @@
+# buf v2 configuration. See ADR-0002.
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # Core service names are intentionally short (SyncService, RoomService, ...)
+    - SERVICE_SUFFIX
+  enum_zero_value_suffix: _UNSPECIFIED
+breaking:
+  use:
+    - FILE
+  # Ignore proto packages whose services are still being fleshed out in
+  # Phases 4-10. Drop entries as each service ships stable contracts.
+  ignore:
+    - vibesync.user.v1
+    - vibesync.room.v1
+    - vibesync.playback.v1
+    - vibesync.media.v1
+    - vibesync.provider.v1
+    - vibesync.notification.v1
+    - vibesync.analytics.v1
+    - vibesync.storage.v1

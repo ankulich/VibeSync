@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package vibesync.user.v1;
+
+import "vibesync/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// User Service contracts. Full message shapes land in Phase 5 (User Service);
+// this file fixes the service surface and message names so Room/Auth/etc. can
+// reference User types today.
+
+message User {
+  vibesync.common.v1.Id id = 1;
+  string username = 2;
+  string display_name = 3;
+  string email = 4;
+  string avatar_url = 5;
+  vibesync.common.v1.SystemRole system_role = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message GetUserRequest {
+  vibesync.common.v1.Id id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  vibesync.common.v1.Id id = 1;
+  optional string display_name = 2;
+  optional string avatar_url = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {
+  vibesync.common.v1.PageRequest page = 1;
+  optional string search = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  vibesync.common.v1.PageResponse page = 2;
+}
+
+service UserService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+}
