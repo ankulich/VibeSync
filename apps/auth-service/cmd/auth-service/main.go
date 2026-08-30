@@ -271,7 +271,7 @@ func bootstrapSigner(ctx context.Context, pool *postgres.Pool, cipher *crypto.Ke
 		if err != nil {
 			// Accept both the raw pgx not-found and our ports.NotFound wrapper
 			// (scanSigningKey translates pgx.ErrNoRows → ports.NotFound).
-			if !errors.Is(err, pgx.ErrNoRows) && !isNotFoundErr(err) {
+			if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, ports.ErrNotFound) {
 				return fmt.Errorf("load active key: %w", err)
 			}
 			// No active key: bootstrap one.
@@ -291,7 +291,10 @@ func bootstrapSigner(ctx context.Context, pool *postgres.Pool, cipher *crypto.Ke
 		} else {
 			der, err := cipher.Decrypt(active.PrivateEncrypted)
 			if err != nil {
-				return fmt.Errorf("decrypt active key: %w", err)
+				// Almost always a master-key mismatch: the stored key was
+				// encrypted under a different VB_AUTH_KEY_MASTER (e.g. an
+				// ephemeral dev key from a previous boot).
+				return fmt.Errorf("decrypt active key: %w (master key mismatch? check VB_AUTH_KEY_MASTER)", err)
 			}
 			priv, err := crypto.RSAPrivateKeyFromPKCS8(der)
 			if err != nil {

@@ -147,6 +147,13 @@ export default function LoginPage() {
             Go to rooms
           </Link>
         </p>
+
+        <p className="mt-2 text-center text-xs text-gray-500">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-accent hover:underline">
+            Create one
+          </Link>
+        </p>
       </div>
     </div>
   );

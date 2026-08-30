@@ -1,5 +1,9 @@
 -- VibeSync Media Service — migration 0001: media_items + media_queue + outbox.
 
+-- Trigram support for the fuzzy title search index below. Ships with the
+-- official postgres image (contrib); required before gin_trgm_ops can be used.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- --- media_items ---------------------------------------------------------
 CREATE TABLE media_items (
     id            CHAR(26)      PRIMARY KEY,

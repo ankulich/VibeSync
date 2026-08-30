@@ -16,8 +16,10 @@ fi
 psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" <<-EOSQL
 $(echo "${DBS}" | tr ',' '\n' | while read -r db; do
   if [[ -n "${db}" ]]; then
-    echo "SELECT 'CREATE DATABASE ${db}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\\gexec"
-    echo "GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${POSTGRES_USER};"
+    # Quote the identifier: service names like "user" are reserved words in
+    # SQL and CREATE DATABASE user is a syntax error without quotes.
+    echo "SELECT 'CREATE DATABASE \"${db}\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\\gexec"
+    echo "GRANT ALL PRIVILEGES ON DATABASE \"${db}\" TO ${POSTGRES_USER};"
   fi
 done)
 EOSQL

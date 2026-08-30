@@ -11,8 +11,13 @@
 #   - Grafana   : dashboards
 #   - Coturn    : TURN/STUN server for WebRTC
 #
-# Bring up:    docker compose -f deployments/docker-compose/docker-compose.yml up -d
-# Tear down:   docker compose -f deployments/docker-compose/docker-compose.yml down -v
+# Bring up:      docker compose -f deployments/docker-compose/docker-compose.yml up -d --wait
+# Tear down:     docker compose -f deployments/docker-compose/docker-compose.yml down
+# Nuke volumes:  docker compose -f deployments/docker-compose/docker-compose.yml down -v
+#
+# Update ONE service without touching the rest (no cascading restarts):
+#   docker compose -f deployments/docker-compose/docker-compose.yml up -d --build --no-deps auth-service
+# or simply:  make svc-up S=auth-service
 #
 # Health: each service has a healthcheck so `docker compose up --wait` blocks
 # until the whole stack is ready. The `_healthcheck-retries` are tuned for a
@@ -34,6 +39,13 @@ volumes:
   prom_data:
   grafana_data:
 
+# Shared build block for all Go services: one parameterized Dockerfile
+# (docker/service.Dockerfile) + repo-root context. Each service only adds
+# `args: { SERVICE: <name> }` and its own image tag.
+x-go-build: &go-build
+  context: ../..
+  dockerfile: docker/service.Dockerfile
+
 services:
 
   # --- Relational store --------------------------------------------------
@@ -47,7 +59,8 @@ services:
       POSTGRES_PASSWORD: vibesync
       POSTGRES_DB: vibesync
       # Init multiple service databases so each microservice gets its own
-      # logical DB. The init script runs once on first boot (empty volume).
+      # logical DB. The init script runs once on first boot (empty volume);
+      # postgres-init below heals volumes that predate it.
       POSTGRES_MULTIPLE_DATABASES: auth,user,room,sync,playback,media,storage,provider
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -60,6 +73,31 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+
+  # --- One-shot database provisioner --------------------------------------
+  # The postgres image runs docker-entrypoint-initdb.d ONLY on an empty
+  # volume. If pg_data predates the init-script mount (or the database list
+  # grows later), the per-service logical DBs never get created and services
+  # crash at migrate with SQLSTATE 3D000 ("database does not exist"). This
+  # job runs the same idempotent script over the network on every `up`, so
+  # missing databases are healed without `down -v`.
+  postgres-init:
+    image: postgres:16-alpine
+    container_name: vibesync-postgres-init
+    restart: "no"
+    networks: [vibesync]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGPASSWORD: vibesync
+      POSTGRES_USER: vibesync
+      POSTGRES_MULTIPLE_DATABASES: auth,user,room,sync,playback,media,storage,provider
+    volumes:
+      - ./init-scripts/postgres-multi-db.sh:/scripts/postgres-multi-db.sh:ro
+    entrypoint: ["/bin/bash", "/scripts/postgres-multi-db.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # --- Key/value + presence ---------------------------------------------
   redis:
@@ -98,9 +136,10 @@ services:
     ports:
       - "27017:27017"
     healthcheck:
-      test: >
-        ["CMD-SHELL",
-        "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
+      # NOTE: keep this an array literal. The previous `>`-folded scalar
+      # turned the whole test into one string, so the shell tried to execute
+      # `["CMD-SHELL", ...]` as a command and the check always failed.
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -141,6 +180,29 @@ services:
       timeout: 10s
       retries: 12
       start_period: 30s
+
+  # --- One-shot topic provisioner ------------------------------------------
+  # Consumers (kafka-go reader groups) join at container start. If a topic
+  # doesn't exist yet (broker auto-create only fires on the first producer
+  # write), the member is assigned ZERO partitions and silently idles
+  # forever. Pre-create every topic the services exchange so consumer
+  # groups get their partitions immediately.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: vibesync-kafka-init
+    restart: "no"
+    networks: [vibesync]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        for t in user.created.v1 room.created.v1 room.joined.v1
+        room.deleted.v1 sync.updated.v1; do
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists
+        --topic $$t --partitions 3 --replication-factor 1 || exit 1; done
+        && echo 'kafka-init: topics ready'
 
   # --- Object storage ----------------------------------------------------
   minio:
@@ -184,8 +246,9 @@ services:
       - "5349:5349"       # TURNS (TCP) — unused in dev, mapped for parity
       - "49160-49200:49160-49200/udp"  # relay range
     healthcheck:
-      # No built-in health endpoint; verify the listener responds to STUN.
-      test: ["CMD-SHELL", "(echo -ne '\x00\x01\x00\x00' | timeout 2 nc -u localhost 3478 && true) || true"]
+      # The image ships no nc/wget/netstat; bash's /dev/tcp is the only
+      # built-in TCP probe. (The previous NUL-byte STUN probe never worked.)
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/3478"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -206,12 +269,10 @@ services:
     depends_on:
       jaeger:
         condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:13133/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    # No healthcheck: the collector image is distroless-style (no shell, no
+    # wget), so an in-container probe is impossible without shipping a
+    # binary. Readiness is best-effort; services degrade gracefully when
+    # OTLP is down (observability.Start continues without export).
 
   # Jaeger receives traces from the collector so we can inspect them in a UI.
   jaeger:
@@ -279,14 +340,23 @@ services:
       retries: 10
 
   # --- Go microservices -----------------------------------------------------
-  # All 7 services. Configured entirely via VB_* env vars (no config files
-  # needed in containers). Each connects to postgres/redis/kafka by container
-  # name on the shared vibesync network.
+  # All 7 services, each built from the shared docker/service.Dockerfile
+  # (build arg SERVICE) and tagged vibesync/<svc>:local. Configured entirely
+  # via VB_* env vars (no config files needed in containers). Each connects
+  # to postgres/redis/kafka by container name on the shared vibesync network.
+  #
+  # Every service waits for `postgres-init` to complete so its logical DB
+  # exists before the startup migration runs.
+  #
+  # To rebuild + redeploy ONE service without cascading restarts:
+  #   make svc-up S=<service>      (docker compose up -d --build --no-deps)
 
   auth-service:
     build:
-      context: ../..
-      dockerfile: apps/auth-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: auth-service
+    image: vibesync/auth-service:local
     container_name: vibesync-auth
     restart: unless-stopped
     networks: [vibesync]
@@ -296,14 +366,21 @@ services:
       VB_REDIS_ADDR: redis:6379
       VB_KAFKA_BROKERS: kafka:9092
       VB_OTEL_ENDPOINT: otel-collector:4317
-      VB_AUTH_KEY_MASTER: ${VB_AUTH_KEY_MASTER:-}
+      # Stable DEV master key (base64, 32 bytes) for auth-service's signing
+      # key encryption. Without it auth generates an ephemeral key per
+      # boot: the first boot encrypts the signing key with it, and every
+      # restart then fails with "decrypt active key: message authentication
+      # failed" → crash loop → 502. Override with a real secret outside dev.
+      VB_AUTH_KEY_MASTER: ${VB_AUTH_KEY_MASTER:-jf+3JHCwinRE+AyTTJqDG7bJnbQQEmiU3jA5zUJxMIo=}
     ports:
       - "8080:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy   # outbox relay → user.created.v1
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -313,24 +390,29 @@ services:
 
   user-service:
     build:
-      context: ../..
-      dockerfile: apps/user-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: user-service
+    image: vibesync/user-service:local
     container_name: vibesync-user
     restart: unless-stopped
     networks: [vibesync]
     environment:
       <<: *go-env
-      VB_KAFKA_CONSUMER_TOPIC: user.created.v1
+      # NB: user-service's consumer-topic config key is kafka.topic, so the
+      # env var is VB_KAFKA_TOPIC (VB_KAFKA_CONSUMER_TOPIC would be a silent
+      # no-op here — it only works for sync-service's consumer_topic key).
+      VB_KAFKA_TOPIC: user.created.v1
       VB_KAFKA_CONSUMER_GROUP_ID: user-service
     ports:
       - "8081:8081"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/healthz || exit 1"]
       interval: 10s
@@ -340,8 +422,10 @@ services:
 
   room-service:
     build:
-      context: ../..
-      dockerfile: apps/room-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: room-service
+    image: vibesync/room-service:local
     container_name: vibesync-room
     restart: unless-stopped
     networks: [vibesync]
@@ -349,12 +433,12 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       kafka:
-        condition: service_healthy
+        condition: service_healthy   # outbox relay → room.*.v1
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8082/healthz || exit 1"]
       interval: 10s
@@ -364,24 +448,29 @@ services:
 
   sync-service:
     build:
-      context: ../..
-      dockerfile: apps/sync-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: sync-service
+    image: vibesync/sync-service:local
     container_name: vibesync-sync
     restart: unless-stopped
     networks: [vibesync]
     environment:
       <<: *go-env
+      # sync-service consumes via the kafka.consumer_topic key
+      # (→ VB_KAFKA_CONSUMER_TOPIC) and produces sync.updated.v1 (topic is
+      # carried per-event in the outbox rows, not via config).
       VB_KAFKA_CONSUMER_TOPIC: room.created.v1
       VB_KAFKA_CONSUMER_GROUP_ID: sync-service
     ports:
       - "8083:8083"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/healthz || exit 1"]
       interval: 10s
@@ -391,24 +480,27 @@ services:
 
   playback-service:
     build:
-      context: ../..
-      dockerfile: apps/playback-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: playback-service
+    image: vibesync/playback-service:local
     container_name: vibesync-playback
     restart: unless-stopped
     networks: [vibesync]
     environment:
       <<: *go-env
+      # playback-service consumes via the kafka.topic key (→ VB_KAFKA_TOPIC).
       VB_KAFKA_TOPIC: sync.updated.v1
       VB_KAFKA_CONSUMER_GROUP_ID: playback-service
     ports:
       - "8084:8084"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8084/healthz || exit 1"]
       interval: 10s
@@ -418,8 +510,10 @@ services:
 
   media-service:
     build:
-      context: ../..
-      dockerfile: apps/media-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: media-service
+    image: vibesync/media-service:local
     container_name: vibesync-media
     restart: unless-stopped
     networks: [vibesync]
@@ -427,8 +521,12 @@ services:
     ports:
       - "8085:8085"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy   # outbox relay leader lock
+      kafka:
+        condition: service_healthy   # producer + relay
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8085/healthz || exit 1"]
       interval: 10s
@@ -438,8 +536,10 @@ services:
 
   provider-service:
     build:
-      context: ../..
-      dockerfile: apps/provider-service/Dockerfile
+      <<: *go-build
+      args:
+        SERVICE: provider-service
+    image: vibesync/provider-service:local
     container_name: vibesync-provider
     restart: unless-stopped
     networks: [vibesync]
@@ -449,12 +549,12 @@ services:
     ports:
       - "8086:8086"
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       auth-service:
-        condition: service_healthy
+        condition: service_healthy   # GetProviderToken via Connect-RPC
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8086/healthz || exit 1"]
       interval: 10s
@@ -464,11 +564,15 @@ services:
 
   # --- Frontend ------------------------------------------------------------
   # Serves the built React app via nginx and proxies Connect-RPC calls to the
-  # Go services on the vibesync network.
+  # Go services on the vibesync network (one location block per service, see
+  # nginx.conf). Depends on all backends so the SPA never 502s during a cold
+  # `up --wait`; per-service updates use `make svc-up` (--no-deps) and do not
+  # cascade here.
   frontend:
     build:
       context: ../../apps/frontend
       dockerfile: Dockerfile
+    image: vibesync/frontend:local
     container_name: vibesync-frontend
     restart: unless-stopped
     networks: [vibesync]
@@ -477,8 +581,22 @@ services:
     depends_on:
       auth-service:
         condition: service_healthy
+      user-service:
+        condition: service_healthy
+      room-service:
+        condition: service_healthy
+      sync-service:
+        condition: service_healthy
+      playback-service:
+        condition: service_healthy
+      media-service:
+        condition: service_healthy
+      provider-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost/ || exit 1"]
+      # 127.0.0.1, not localhost: busybox wget resolves localhost to ::1 and
+      # nginx's `listen 80` binds IPv4 only.
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -7,9 +7,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Cache-friendly dependency layer.
+# Cache-friendly dependency layer (npm cache shared across rebuilds).
 COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 
 # Source (includes the generated TS code in src/gen).
 COPY . .

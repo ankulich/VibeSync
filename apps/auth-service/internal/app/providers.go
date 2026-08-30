@@ -12,6 +12,7 @@ import (
 	authv1 "vibesync/gen/go/vibesync/auth/v1"
 	commonv1 "vibesync/gen/go/vibesync/common/v1"
 	vberr "vibesync/libs/errors"
+	vbweb "vibesync/libs/web"
 )
 
 // ListLinkedProviders returns the streaming providers (Spotify, YouTube)
@@ -74,17 +75,6 @@ type requestSubject struct {
 func subjectFromHeader(h http.Header) requestSubject {
 	return requestSubject{
 		UserID:     h.Get("X-Vibesync-User-Id"),
-		SystemRole: parseSystemRole(h.Get("X-Vibesync-System-Role")),
+		SystemRole: vbweb.ParseSystemRole(h.Get("X-Vibesync-System-Role")),
 	}
-}
-
-// parseSystemRole maps the header string to the enum.
-func parseSystemRole(s string) commonv1.SystemRole {
-	if s == "" {
-		return commonv1.SystemRole_SYSTEM_ROLE_UNSPECIFIED
-	}
-	if v, ok := commonv1.SystemRole_value[s]; ok {
-		return commonv1.SystemRole(v)
-	}
-	return commonv1.SystemRole_SYSTEM_ROLE_UNSPECIFIED
 }

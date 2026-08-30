@@ -13,6 +13,7 @@ import (
 	"vibesync/apps/media-service/internal/config"
 	"vibesync/apps/media-service/internal/ports"
 	commonv1 "vibesync/gen/go/vibesync/common/v1"
+	vbweb "vibesync/libs/web"
 )
 
 // Service is the Media Service use-case facade.
@@ -98,19 +99,8 @@ type requestSubject struct {
 func subjectFromHeader(h http.Header) requestSubject {
 	return requestSubject{
 		UserID:     h.Get("X-Vibesync-User-Id"),
-		SystemRole: parseSystemRole(h.Get("X-Vibesync-System-Role")),
+		SystemRole: vbweb.ParseSystemRole(h.Get("X-Vibesync-System-Role")),
 	}
-}
-
-// parseSystemRole parses the X-Vibesync-System-Role header into an enum.
-func parseSystemRole(s string) commonv1.SystemRole {
-	if s == "" {
-		return commonv1.SystemRole_SYSTEM_ROLE_UNSPECIFIED
-	}
-	if v, ok := commonv1.SystemRole_value[s]; ok {
-		return commonv1.SystemRole(v)
-	}
-	return commonv1.SystemRole_SYSTEM_ROLE_UNSPECIFIED
 }
 
 // isNotFound reports whether err is the canonical ports.ErrNotFound.

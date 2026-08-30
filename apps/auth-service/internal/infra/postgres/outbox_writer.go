@@ -34,10 +34,12 @@ func (OutboxWriter) Append(ctx context.Context, tx pgx.Tx, events ...vboutbox.Ev
 		if e.Topic == "" {
 			return fmt.Errorf("outbox: event %d missing topic", i)
 		}
-		payload, err := json.Marshal(e.Payload)
-		if err != nil {
-			return fmt.Errorf("outbox: marshal payload %d: %w", i, err)
-		}
+		// Payload is already the serialized event body ([]byte) — the use
+		// case marshaled it. Insert it verbatim so the JSONB column (and the
+		// Kafka message value the relay ships) is exactly that JSON object.
+		// Re-marshaling a []byte would base64-encode it into a JSON string
+		// and break every consumer's json.Unmarshal.
+		payload := e.Payload
 		headers, err := json.Marshal(e.Headers)
 		if err != nil {
 			return fmt.Errorf("outbox: marshal headers %d: %w", i, err)

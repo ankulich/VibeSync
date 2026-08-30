@@ -1,0 +1,21 @@
+# Root build context for docker/service.Dockerfile (repo root). Keeps the
+# context small: without this, every Go service image build shipped
+# apps/frontend/node_modules and .git to the daemon.
+.git
+.gitignore
+.golangci.yml
+.editorconfig
+**/node_modules
+**/dist
+**/.tmp
+**/*.exe
+**/bin
+tools/.bin
+libs/.tmp
+apps/frontend
+apps/test-clients/host.exe
+apps/test-clients/listener.exe
+docs
+deployments
+ecommerce-platform
+*.md

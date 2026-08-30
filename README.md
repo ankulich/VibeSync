@@ -5,8 +5,10 @@ video watching. Synchronized playback is hard: variable network latency,
 client clock skew, host migration, and drift correction all have to be
 solved together. This repo is built around that core problem.
 
-**Status:** Phase 1 (Architecture & Foundation) complete. No business
-services yet — those land in their own phases per the Generation Order.
+**Status:** Phases 1–7 complete: 7 Go microservices (auth, user, room, sync,
+playback, media, provider) + a React/Vite frontend, wired over Connect-RPC
+and Kafka (outbox pattern). Later-phase services (notification, analytics,
+storage, gateway) are specified in proto but not yet implemented.
 
 ---
 
@@ -16,10 +18,11 @@ services yet — those land in their own phases per the Generation Order.
 |------|------------|
 | `proto/vibesync/` | Canonical `.proto` contracts. Auth and Sync are fully specified; the rest have stable signatures. |
 | `gen/go/` | Generated Go code (Connect-RPC + protobuf). Produced by `make proto`. |
+| `apps/` | One Go module per microservice (`auth`, `user`, `room`, `sync`, `playback`, `media`, `provider`), plus `frontend/` (React + Vite, served by nginx) and `test-clients/`. |
 | `libs/` | Shared Go libraries: errors, id, config, log, observability, telemetry, plus port interfaces for kafka/outbox/rbac/featureflag/web/rpc/store/redis/mongo/storage/testing. |
 | `tools/` | Private Go toolchain module (buf, protoc-gen-*, golangci-lint) pinned via `go tool`. |
-| `docker/base.Dockerfile` | Multi-stage distroless base for all services. |
-| `deployments/docker-compose/` | Local infra stack: Postgres, Redis, Mongo, Kafka, MinIO, OTel, Prometheus, Grafana, Coturn. |
+| `docker/service.Dockerfile` | Single parameterized multi-stage image for all Go services (`--build-arg SERVICE=<name>`). |
+| `deployments/docker-compose/` | Local stack: Postgres, Redis, Mongo, Kafka, MinIO, OTel, Prometheus, Grafana, Coturn — plus all 7 services and the frontend. |
 | `docs/adr/` | Architecture Decision Records (0001–0009). |
 | `docs/sync/algorithm.md` | Specification of the synchronization algorithm — the project's technical core. |
 | `scripts/` | `bootstrap.sh`, `gen-proto.sh`, `test.sh`. |
@@ -43,13 +46,36 @@ scripts/bootstrap.sh
 # 2. Generate Go code from the .proto contracts.
 make proto      # or: scripts/gen-proto.sh
 
-# 3. Boot the local infrastructure.
-make docker-up  # or: docker compose -f deployments/docker-compose/docker-compose.yml up -d
+# 3. Boot the whole stack (infra + services + frontend), wait for health.
+make docker-up  # or: docker compose -f deployments/docker-compose/docker-compose.yml up -d --wait
 
 # 4. Build and test.
 make build
 make test
 ```
+
+The app is then at http://localhost:8090 (registration → login → rooms).
+
+### Updating a single service (no full restart)
+
+```bash
+# Rebuild + redeploy exactly one service. --no-deps means the infra stack
+# and the other services (including dependents like the frontend) stay up.
+make svc-up S=auth-service     # any of: auth-service user-service room-service
+                               # sync-service playback-service media-service
+                               # provider-service frontend
+
+make svc-logs S=auth-service   # tail its logs
+make svc-restart S=auth-service
+```
+
+Plain `docker compose up -d --build <service>` also works, but without
+`--no-deps` it may recreate dependency containers alongside.
+
+`make docker-down` stops the stack **keeping volumes**; `make docker-reset`
+wipes them (fresh databases, empty Kafka) and boots again. A one-shot
+`postgres-init` job creates missing per-service databases on every `up`, so
+adding a service DB to the list heals an existing volume without a reset.
 
 ## Working with the code
 
@@ -67,6 +93,14 @@ Once `make docker-up` has run:
 
 | Service       | URL / port             | Credentials        |
 |---------------|------------------------|--------------------|
+| **Frontend**  | http://localhost:8090  | register/login     |
+| auth-service  | localhost:8080         | (Connect-RPC)      |
+| user-service  | localhost:8081         | (Connect-RPC)      |
+| room-service  | localhost:8082         | (Connect-RPC)      |
+| sync-service  | localhost:8083         | (Connect-RPC)      |
+| playback-service | localhost:8084     | (Connect-RPC)      |
+| media-service | localhost:8085         | (Connect-RPC)      |
+| provider-service | localhost:8086     | (Connect-RPC)      |
 | Postgres      | localhost:5432         | vibesync / vibesync |
 | Redis         | localhost:6379         | (none)             |
 | MongoDB       | localhost:27017        | vibesync / vibesync |
@@ -102,6 +136,20 @@ built and on `PATH`.
 
 `make docker-up` requires Docker Desktop to be running. Start it manually on
 macOS/Windows, or `systemctl start docker` on Linux.
+
+### auth-service crash-loops with `decrypt active key: message authentication failed`
+
+The `auth` database holds a signing key encrypted under the `VB_AUTH_KEY_MASTER`
+that was active when the key was created. The compose file pins a stable dev
+master key, so this only happens if the DB was bootstrapped under a *different*
+key (e.g. an older run with an ephemeral key). One-time fix in dev:
+
+```bash
+docker exec vibesync-postgres psql -U vibesync -d auth -c "TRUNCATE auth.signing_keys;"
+make svc-restart S=auth-service   # re-bootstraps a fresh signing key
+```
+
+Previously issued access tokens become invalid; password login issues new ones.
 
 ## Architecture decisions
 

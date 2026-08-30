@@ -14,6 +14,7 @@ import (
 	commonv1 "vibesync/gen/go/vibesync/common/v1"
 	userv1 "vibesync/gen/go/vibesync/user/v1"
 	vberr "vibesync/libs/errors"
+	vbweb "vibesync/libs/web"
 
 	userv1connect "vibesync/gen/go/vibesync/user/v1/userv1connect"
 )
@@ -168,20 +169,8 @@ type requestSubject struct {
 func subjectFromHeader(h http.Header) requestSubject {
 	return requestSubject{
 		UserID:     h.Get("X-Vibesync-User-Id"),
-		SystemRole: parseSystemRole(h.Get("X-Vibesync-System-Role")),
+		SystemRole: vbweb.ParseSystemRole(h.Get("X-Vibesync-System-Role")),
 	}
-}
-
-// parseSystemRole converts the header string to the enum. The header carries
-// the proto enum name (e.g. "SYSTEM_ROLE_ADMINISTRATOR") or numeric value.
-func parseSystemRole(s string) commonv1.SystemRole {
-	if s == "" {
-		return commonv1.SystemRole_SYSTEM_ROLE_UNSPECIFIED
-	}
-	if v, ok := commonv1.SystemRole_value[s]; ok {
-		return commonv1.SystemRole(v)
-	}
-	return commonv1.SystemRole(commonv1.SystemRole_value[s])
 }
 
 // isNotFound reports whether err is a ports.ErrNotFound.
