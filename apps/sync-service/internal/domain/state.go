@@ -33,6 +33,12 @@ type SyncState struct {
 	HostID       string
 	FencingToken uint64
 	EpochStarted time.Time
+
+	// OwnerID is the room owner (from room.created.v1), server-internal and
+	// not part of the wire state. The owner's timing is the room's primary:
+	// the owner is the drift-correction reference and reclaims the host role
+	// whenever present. Empty when unknown (rooms predating the field).
+	OwnerID string
 }
 
 // AdvanceMediaTime computes the current media position given the elapsed wall

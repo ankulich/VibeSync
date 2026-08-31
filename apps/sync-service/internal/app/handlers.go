@@ -40,17 +40,15 @@ func (s *Service) Subscribe(
 	ch := room.RegisterSubscriber()
 	defer room.UnregisterSubscriber(ch)
 
-	// If the client is far behind, send a snapshot first.
-	lastEpoch := req.Msg.GetLastAppliedEpoch()
-	if lastEpoch > 0 && room.CurrentEpoch() > lastEpoch+uint64(s.cfg.Sync.RecoverRingBufferSize) {
-		snap, _ := room.Recover(lastEpoch)
-		if snap != nil {
-			if err := stream.Send(&syncv1.SubscribeResponse{
-				Payload: &syncv1.SubscribeResponse_Snapshot{Snapshot: snap},
-			}); err != nil {
-				return err
-			}
-		}
+	// Always send a snapshot first: a first-time subscriber (lastAppliedEpoch
+	// 0) has nothing to fence against and would otherwise stare at an empty
+	// stream until the next periodic broadcast (up to the snapshot interval —
+	// or forever if the room is idle with no commands).
+	snap := room.Snapshot()
+	if err := stream.Send(&syncv1.SubscribeResponse{
+		Payload: &syncv1.SubscribeResponse_Snapshot{Snapshot: snap},
+	}); err != nil {
+		return err
 	}
 
 	// Forward frames until the client disconnects.

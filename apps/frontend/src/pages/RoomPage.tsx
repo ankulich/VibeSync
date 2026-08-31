@@ -2,17 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { getMediaClient, getRoomClient, getSyncClient } from '../api/clients';
+import AddVideoPanel from '../components/AddVideoPanel';
 import MemberList from '../components/MemberList';
 import PlayerControls, { type CommandOptions } from '../components/PlayerControls';
 import QueuePanel from '../components/QueuePanel';
 import SearchPanel from '../components/SearchPanel';
 import SyncIndicator from '../components/SyncIndicator';
+import UploadPanel from '../components/UploadPanel';
+import YouTubePlayer from '../components/YouTubePlayer';
 import { useHeartbeat } from '../hooks/useHeartbeat';
 import { useSyncStream } from '../hooks/useSyncStream';
+import { useAuthStore } from '../stores/auth';
+import { Id } from '../gen/vibesync/common/v1/common_pb';
 import { MediaKind, MediaSource, type Media } from '../gen/vibesync/media/v1/media_pb';
 import { CommandKind, CommandRequest, type SyncState } from '../gen/vibesync/sync/v1/sync_pb';
 
-type SidebarTab = 'queue' | 'members' | 'search';
+type SidebarTab = 'queue' | 'members' | 'add' | 'upload';
 
 function mediaDurationMs(media: Media | undefined): number {
   if (!media?.duration) return 0;
@@ -97,6 +102,26 @@ export default function RoomPage() {
     (currentMediaId != null ? mediaDetails[currentMediaId] : undefined) ??
     currentMediaQuery.data?.media;
 
+  // Host check: sync commands are host-only, so the transport UI is disabled
+  // for everyone else instead of letting buttons fail silently server-side.
+  const userId = useAuthStore((s) => s.userId);
+  const isHost = syncState?.hostId != null && syncState.hostId.value === userId;
+
+  // Add-by-link YouTube items carry no duration in metadata (oEmbed has
+  // none); the IFrame player reports the real one once it loads.
+  const [playerDurationMs, setPlayerDurationMs] = useState<number | null>(null);
+  useEffect(() => {
+    setPlayerDurationMs(null);
+  }, [currentMediaId]);
+  const effectiveDurationMs = currentMedia
+    ? mediaDurationMs(currentMedia) || playerDurationMs || null
+    : null;
+
+  const isYouTubeVideo =
+    currentMedia?.kind === MediaKind.VIDEO &&
+    currentMedia?.source === MediaSource.PROVIDER &&
+    currentMedia.externalRef.length > 0;
+
   const [tab, setTab] = useState<SidebarTab>('queue');
 
   /** Sends a playback command stamped with the latest fencing token. */
@@ -114,11 +139,25 @@ export default function RoomPage() {
       if (opts?.rate !== undefined) {
         request.rate = opts.rate;
       }
+      if (opts?.mediaId !== undefined) {
+        request.mediaId = new Id({ value: opts.mediaId });
+      }
       void getSyncClient().command(request).catch((err: unknown) => {
         console.error('playback command failed', err);
       });
     },
     [activeRoomId],
+  );
+
+  /** Loads a queued media into the room and starts playback (host-only). */
+  const playNow = useCallback(
+    (mediaId: string) => {
+      // LOAD_MEDIA resets to position 0 paused; follow with PLAY so the
+      // click is enough to start the room clock.
+      sendCommand(CommandKind.LOAD_MEDIA, { mediaId });
+      sendCommand(CommandKind.PLAY);
+    },
+    [sendCommand],
   );
 
   if (!roomId) {
@@ -135,7 +174,8 @@ export default function RoomPage() {
   const tabs: Array<{ id: SidebarTab; label: string }> = [
     { id: 'queue', label: `Queue (${queueItems.length})` },
     { id: 'members', label: `Members (${memberCount})` },
-    { id: 'search', label: 'Search' },
+    { id: 'add', label: 'Add media' },
+    { id: 'upload', label: 'Upload' },
   ];
 
   return (
@@ -163,47 +203,59 @@ export default function RoomPage() {
 
       <div className="flex flex-1 flex-col lg:flex-row">
         <main className="flex-1 space-y-6 p-6">
+          {isYouTubeVideo && currentMedia ? (
+            <YouTubePlayer
+              key={currentMedia.externalRef}
+              videoId={currentMedia.externalRef}
+              syncState={syncState}
+              onDuration={setPlayerDurationMs}
+            />
+          ) : null}
+
           <PlayerControls
             syncState={syncState}
             onCommand={sendCommand}
             mediaTitle={currentMedia?.title ?? null}
-            mediaDurationMs={currentMedia ? mediaDurationMs(currentMedia) : null}
+            mediaDurationMs={effectiveDurationMs}
+            controlsEnabled={isHost}
           />
 
-          <section className="card">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Now playing
-            </h2>
-            {currentMedia ? (
-              <div className="mt-3 flex items-center gap-4">
-                {currentMedia.coverUrl ? (
-                  <img
-                    src={currentMedia.coverUrl}
-                    alt=""
-                    className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                  />
-                ) : (
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-surface-overlay text-gray-500">
-                    ♪
+          {!isYouTubeVideo && (
+            <section className="card">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Now playing
+              </h2>
+              {currentMedia ? (
+                <div className="mt-3 flex items-center gap-4">
+                  {currentMedia.coverUrl ? (
+                    <img
+                      src={currentMedia.coverUrl}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-surface-overlay text-gray-500">
+                      ♪
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{currentMedia.title}</p>
+                    <p className="truncate text-sm text-gray-400">
+                      {currentMedia.artist || 'Unknown artist'}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-gray-500">
+                      {MediaKind[currentMedia.kind] ?? 'UNKNOWN'} · via{' '}
+                      {MediaSource[currentMedia.source] ?? 'UNKNOWN'} · ref {currentMedia.externalRef}
+                    </p>
                   </div>
-                )}
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{currentMedia.title}</p>
-                  <p className="truncate text-sm text-gray-400">
-                    {currentMedia.artist || 'Unknown artist'}
-                  </p>
-                  <p className="mt-1 truncate text-xs text-gray-500">
-                    {MediaKind[currentMedia.kind] ?? 'UNKNOWN'} · via{' '}
-                    {MediaSource[currentMedia.source] ?? 'UNKNOWN'} · ref {currentMedia.externalRef}
-                  </p>
                 </div>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-gray-400">
-                Nothing loaded. Queue a track from Search to start the room clock.
-              </p>
-            )}
-          </section>
+              ) : (
+                <p className="mt-3 text-sm text-gray-400">
+                  Nothing loaded. Add a YouTube link or a Spotify track to start the room clock.
+                </p>
+              )}
+            </section>
+          )}
         </main>
 
         <aside className="w-full shrink-0 border-t border-gray-800 bg-surface-raised/40 lg:w-96 lg:border-l lg:border-t-0">
@@ -231,10 +283,18 @@ export default function RoomPage() {
                 queueItems={queueItems}
                 mediaDetails={mediaDetails}
                 currentMediaId={currentMediaId}
+                isHost={isHost}
+                onPlayNow={playNow}
               />
             )}
             {tab === 'members' && <MemberList members={membersQuery.data?.members ?? []} />}
-            {tab === 'search' && <SearchPanel roomId={roomId} />}
+            {tab === 'add' && (
+              <div>
+                <AddVideoPanel roomId={roomId} />
+                <SearchPanel roomId={roomId} />
+              </div>
+            )}
+            {tab === 'upload' && <UploadPanel />}
           </div>
         </aside>
       </div>

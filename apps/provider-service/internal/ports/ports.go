@@ -3,6 +3,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +11,11 @@ import (
 
 	"vibesync/apps/provider-service/internal/domain"
 )
+
+// ErrSearchUnsupported is returned by providers that have no keyless search
+// surface (e.g. YouTube without the Data API — see ADR-0016). Callers map it
+// to a typed Unimplemented error; clients add such media by URL instead.
+var ErrSearchUnsupported = errors.New("provider: search is not supported for this provider")
 
 // ExternalProvider is the search/resolve surface of an external music provider.
 type ExternalProvider interface {

@@ -60,6 +60,14 @@ type SyncConfig struct {
 	ControllerIntegralClampMs float64       `mapstructure:"controller_integral_clamp_ms"`
 	RecoverRingBufferSize     int           `mapstructure:"recover_ring_buffer_size"`
 	DiscontinuityThresholdMs  float64       `mapstructure:"discontinuity_threshold_ms"`
+	// DriftCorrectionEnabled re-enables the P+I heartbeat-drift nudging of
+	// the authoritative clock. OFF by default: the room clock is defined by
+	// the owner's commands (play/pause/seek/load) — see
+	// docs/sync/algorithm.md "Drift correction". Unreliable drift inputs
+	// (skewed client clocks, frozen players) made the nudging rewind every
+	// viewer by up to a second every second, perceived as the video
+	// looping on a fragment.
+	DriftCorrectionEnabled bool `mapstructure:"drift_correction_enabled"`
 }
 
 // WebConfig is the HTTP server surface.
@@ -103,6 +111,7 @@ func Defaults() map[string]any {
 		"sync.controller_integral_clamp_ms": 200.0,
 		"sync.recover_ring_buffer_size":     32,
 		"sync.discontinuity_threshold_ms":   2000.0,
+		"sync.drift_correction_enabled":     false,
 		"web.addr":                          ":8083",
 		"web.rate_limit_per_second":         10,
 		"log.level":                         "info",

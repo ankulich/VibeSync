@@ -1,0 +1,2 @@
+ALTER TABLE sync_state ALTER COLUMN media_id TYPE CHAR(26);
+ALTER TABLE sync_state ALTER COLUMN host_id TYPE CHAR(26);

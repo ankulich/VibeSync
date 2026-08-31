@@ -121,7 +121,7 @@ func run() error {
 		logger.Warn("spotify provider disabled")
 	}
 	if cfg.YouTube.Enabled {
-		deps.YouTube = youtube.NewClient(httpClient, cfg.YouTube.APIKey)
+		deps.YouTube = youtube.NewClient(httpClient)
 		logger.Info("youtube provider enabled")
 	} else {
 		logger.Warn("youtube provider disabled")
@@ -180,9 +180,6 @@ func loadConfig() (*config.Config, error) {
 	}
 	if v := os.Getenv("VB_OAUTH_SPOTIFY_CLIENT_SECRET"); v != "" {
 		cfg.Spotify.ClientSecret = v
-	}
-	if v := os.Getenv("VB_YOUTUBE_API_KEY"); v != "" {
-		cfg.YouTube.APIKey = v
 	}
 	return &cfg, nil
 }

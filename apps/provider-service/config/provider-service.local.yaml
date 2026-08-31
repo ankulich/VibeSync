@@ -2,7 +2,8 @@
 # Provider credentials come from env, NOT this file:
 #   VB_OAUTH_SPOTIFY_CLIENT_ID / VB_OAUTH_SPOTIFY_CLIENT_SECRET — Spotify app
 #     credentials (client-credentials grant for search + anonymous resolve).
-#   VB_YOUTUBE_API_KEY — Google Cloud API key with YouTube Data API v3 enabled.
+# YouTube is keyless (public oEmbed + IFrame player, see ADR-0016): no
+# credentials needed, search is replaced by add-by-URL on the client.
 # DB / Redis passwords come from VB_DB_PASSWORD / VB_REDIS_PASSWORD.
 db:
   host: localhost
@@ -26,7 +27,7 @@ spotify:
   enabled: false
 
 youtube:
-  enabled: false
+  enabled: true
 
 # Auth Service origin (host:port) for per-user provider tokens.
 auth_service_addr: localhost:8080

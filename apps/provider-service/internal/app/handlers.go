@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
 
 	"vibesync/apps/provider-service/internal/domain"
+	"vibesync/apps/provider-service/internal/ports"
 	commonv1 "vibesync/gen/go/vibesync/common/v1"
 	providerv1 "vibesync/gen/go/vibesync/provider/v1"
 	providerv1connect "vibesync/gen/go/vibesync/provider/v1/providerv1connect"
@@ -40,6 +42,12 @@ func (s *Service) Search(ctx context.Context, req *connect.Request[providerv1.Se
 	}
 	results, err := searcher.Search(ctx, query, searchLimit(req.Msg.GetPage()))
 	if err != nil {
+		// Keyless providers (YouTube, see ADR-0016) cannot search at all —
+		// surface that distinctly instead of a generic SEARCH_FAILED.
+		if errors.Is(err, ports.ErrSearchUnsupported) {
+			return nil, vberr.New(vberr.KindUnimplemented, "vibesync.provider", "SEARCH_UNSUPPORTED",
+				"search is not available for this provider; add YouTube videos by pasting a URL")
+		}
 		return nil, vberr.Internal("SEARCH_FAILED", err.Error()).WithCause(err)
 	}
 	protos := make([]*providerv1.SearchResult, 0, len(results))

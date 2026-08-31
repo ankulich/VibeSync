@@ -158,16 +158,25 @@ func (m *RoomManager) GetOrCreate(ctx context.Context, roomID string) (*RoomSync
 		m.makePersister(), m.makeStager(),
 		m.presence, m.clock, m.idgen, m.logger)
 	m.rooms[roomID] = rs
-	rs.Start(ctx)
+	// The room loop must outlive the request that materialized the room:
+	// tying it to the request ctx kills the loop for every future subscriber
+	// as soon as that one client disconnects (Start is a no-op once started).
+	rs.Start(context.Background())
 	return rs, nil
 }
 
 // Init creates a room from a room.created.v1 event (called by the consumer).
-// Idempotent: if the room already exists, this is a no-op.
+// Idempotent: if the room already exists, this is a no-op — except that a
+// hostless room (materialized by a subscriber before this event arrived)
+// adopts the owner as its host, and the owner is always recorded.
 func (m *RoomManager) Init(ctx context.Context, roomID, ownerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.rooms[roomID]; ok {
+	if rs, ok := m.rooms[roomID]; ok {
+		if rs.AdoptOwnerIfUnset(ownerID) {
+			m.logger.Info("hostless room adopted owner from room.created.v1",
+				"room_id", roomID, "host_id", ownerID)
+		}
 		return nil // already initialized
 	}
 	state := domain.SyncState{
@@ -176,12 +185,13 @@ func (m *RoomManager) Init(ctx context.Context, roomID, ownerID string) error {
 		PlaybackRate: 1.0,
 		Epoch:        0,
 		HostID:       ownerID,
+		OwnerID:      ownerID,
 	}
 	rs := NewRoomSync(m.cfg, roomID, state,
 		m.makePersister(), m.makeStager(),
 		m.presence, m.clock, m.idgen, m.logger)
 	m.rooms[roomID] = rs
-	rs.Start(ctx)
+	rs.Start(context.Background())
 	m.logger.Info("room initialized from room.created.v1", "room_id", roomID, "host_id", ownerID)
 	return nil
 }

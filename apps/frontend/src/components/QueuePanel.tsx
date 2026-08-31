@@ -10,6 +10,10 @@ export interface QueuePanelProps {
   mediaDetails: Record<string, Media>;
   /** Media id currently loaded in the player, if any. */
   currentMediaId?: string | null;
+  /** Whether the local user may issue playback commands (host). */
+  isHost?: boolean;
+  /** Loads a queued media into the room (host-only action). */
+  onPlayNow?: (mediaId: string) => void;
 }
 
 function mediaDurationMs(media: Media | undefined): number {
@@ -17,7 +21,14 @@ function mediaDurationMs(media: Media | undefined): number {
   return Number(media.duration.seconds) * 1000 + media.duration.nanos / 1_000_000;
 }
 
-export default function QueuePanel({ roomId, queueItems, mediaDetails, currentMediaId }: QueuePanelProps) {
+export default function QueuePanel({
+  roomId,
+  queueItems,
+  mediaDetails,
+  currentMediaId,
+  isHost = false,
+  onPlayNow,
+}: QueuePanelProps) {
   const queryClient = useQueryClient();
 
   const removeMutation = useMutation({
@@ -64,6 +75,18 @@ export default function QueuePanel({ roomId, queueItems, mediaDetails, currentMe
             </div>
             {isCurrent && (
               <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs text-accent">now</span>
+            )}
+            {onPlayNow && !isCurrent && (
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-surface-overlay hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!isHost || mediaId === ''}
+                onClick={() => onPlayNow(mediaId)}
+                aria-label="Play now"
+                title={isHost ? 'Play now' : 'Playback is controlled by the host'}
+              >
+                ▶ Play
+              </button>
             )}
             <button
               type="button"

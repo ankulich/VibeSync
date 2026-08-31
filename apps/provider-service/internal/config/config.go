@@ -60,11 +60,11 @@ type OTelConfig struct {
 }
 
 // ProviderCredsConfig holds the API credentials for one external provider.
-// ClientID/ClientSecret are used by Spotify; APIKey by YouTube.
+// ClientID/ClientSecret are used by Spotify; YouTube is keyless (oEmbed, see
+// ADR-0016) and needs no credentials — only the Enabled toggle.
 type ProviderCredsConfig struct {
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"`
-	APIKey       string `mapstructure:"api_key"`
 	Enabled      bool   `mapstructure:"enabled"`
 }
 
@@ -86,7 +86,7 @@ func Defaults() map[string]any {
 		"otel.endpoint":             "localhost:4317",
 		"otel.sample_ratio":         1.0,
 		"spotify.enabled":           false,
-		"youtube.enabled":           false,
+		"youtube.enabled":           true,
 		"auth_service_addr":         "localhost:8080",
 	}
 }

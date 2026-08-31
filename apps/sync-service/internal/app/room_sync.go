@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -166,39 +167,51 @@ func (rs *RoomSync) tick() {
 	now := rs.clock.Now()
 	nowMs := rs.clock.NowMs()
 
-	// Compute active peer count + collect drifts.
-	var drifts []float64
-	var rtts []float64
-	activeCount := 0
-	for _, hb := range rs.heartbeats {
-		if hb.IsAlive(now, rs.hostTimeout()) {
-			activeCount++
-			if hb.SmoothedRTT > 0 {
+	// Drift-correction P+I nudging is DISABLED by default
+	// (cfg.DriftCorrectionEnabled). The room clock is defined by the
+	// owner's commands; heartbeats only feed presence, migration and each
+	// client's own indicator. History: with unreliable drift inputs
+	// (skewed client clocks, frozen players) the nudging rewound every
+	// viewer by up to a second every second — the video visibly looped on
+	// a fragment. When re-enabled, the owner (else host) is the only
+	// reference — guests never move the clock.
+	if rs.cfg.DriftCorrectionEnabled {
+		activeCount := 0
+		for _, hb := range rs.heartbeats {
+			if hb.IsAlive(now, rs.hostTimeout()) {
+				activeCount++
+			}
+		}
+		var drifts []float64
+		var rtts []float64
+		refID := rs.state.OwnerID
+		if refID == "" {
+			refID = rs.state.HostID
+		}
+		if refID != "" {
+			if hb, ok := rs.heartbeats[refID]; ok &&
+				hb.IsAlive(now, rs.hostTimeout()) && hb.SmoothedRTT > 0 {
 				drifts = append(drifts, hb.DriftMs)
 				rtts = append(rtts, hb.SmoothedRTT)
 			}
 		}
-	}
+		confidence := computeConfidence(activeCount, rtts)
+		medianDrift := domain.MedianFloats(drifts)
+		result := rs.controller.Correct(medianDrift, rs.heartbeatInterval(), activeCount, confidence)
 
-	// Compute confidence (simplified: based on active peer count and RTT
-	// consistency). More peers + lower RTT spread → higher confidence.
-	confidence := computeConfidence(activeCount, rtts)
-
-	// Apply the drift controller.
-	medianDrift := domain.MedianFloats(drifts)
-	result := rs.controller.Correct(medianDrift, rs.heartbeatInterval(), activeCount, confidence)
-
-	if result.ForceSnapshot {
-		rs.controller.Reset()
-		rs.broadcastUpdateLocked()
-		return
-	}
-
-	if result.CorrectionMs != 0 {
-		rs.state.MediaTimeMs -= int64(result.CorrectionMs)
-		rs.state.WallTimeMs = nowMs
-		rs.state.Epoch++
-		rs.broadcastUpdateLocked()
+		if result.ForceSnapshot {
+			rs.controller.Reset()
+			rs.broadcastUpdateLocked()
+			return
+		}
+		// Correct only while playing: a paused room's position is frozen
+		// by definition, and nudging it while paused visibly creeps.
+		if result.CorrectionMs != 0 && rs.state.Status == domain.StatusPlaying {
+			rs.state.MediaTimeMs -= int64(result.CorrectionMs)
+			rs.state.WallTimeMs = nowMs
+			rs.state.Epoch++
+			rs.broadcastUpdateLocked()
+		}
 	}
 
 	// Check host liveness.
@@ -215,29 +228,37 @@ func (rs *RoomSync) hostTimeout() time.Duration {
 // checkHostMigrationLocked detects a dead host and selects a successor.
 // Must be called with rs.mu held.
 func (rs *RoomSync) checkHostMigrationLocked(now time.Time) {
+	// Owner reclaim: the owner's timing is the room's primary, so whenever
+	// the owner is present the host role belongs to them — including after
+	// a temporary migration while they were away.
+	if rs.state.OwnerID != "" && rs.state.HostID != rs.state.OwnerID {
+		if hb, ok := rs.heartbeats[rs.state.OwnerID]; ok && hb.IsAlive(now, rs.hostTimeout()) {
+			rs.migrateHostLocked(rs.state.OwnerID, now)
+			return
+		}
+	}
+
 	if rs.state.HostID == "" {
-		return // no host yet
+		// Hostless room: materialized by an eager subscriber before the
+		// room.created.v1 event arrived (Init then no-ops on an existing
+		// room), or restored from a persisted hostless row. Elect an
+		// active peer (the owner if present) so the room becomes
+		// controllable.
+		successor := rs.preferredSuccessorLocked(now, "")
+		if successor == "" {
+			return // nobody here yet
+		}
+		rs.migrateHostLocked(successor, now)
+		return
 	}
 	hb, ok := rs.heartbeats[rs.state.HostID]
 	if ok && hb.IsAlive(now, rs.hostTimeout()) {
 		return // host is alive
 	}
 
-	// Host is dead. Select a successor.
-	// Prefer the longest-present active peer. If presence is available, use
-	// it; otherwise pick the peer with the oldest LastSeen among active.
-	var successor string
-	bestTime := now
-	for userID, h := range rs.heartbeats {
-		if userID == rs.state.HostID {
-			continue
-		}
-		if h.IsAlive(now, rs.hostTimeout()) && h.LastSeen.Before(bestTime) {
-			bestTime = h.LastSeen
-			successor = userID
-		}
-	}
-
+	// Host is dead. Select a successor (the owner if present, else the
+	// longest-present active peer).
+	successor := rs.preferredSuccessorLocked(now, rs.state.HostID)
 	if successor == "" {
 		// No successor: pause the room.
 		if rs.state.Status == domain.StatusPlaying {
@@ -250,8 +271,43 @@ func (rs *RoomSync) checkHostMigrationLocked(now time.Time) {
 			"room_id", rs.roomID, "previous_host", rs.state.HostID)
 		return
 	}
+	rs.migrateHostLocked(successor, now)
+}
 
-	// Migrate.
+// preferredSuccessorLocked picks the next host: the owner when present and
+// eligible, otherwise the active peer with the oldest LastSeen. excludeID
+// (the dead host) is never elected. Empty result means no eligible peer.
+// Must be called with rs.mu held.
+func (rs *RoomSync) preferredSuccessorLocked(now time.Time, excludeID string) string {
+	if rs.state.OwnerID != "" && rs.state.OwnerID != excludeID {
+		if hb, ok := rs.heartbeats[rs.state.OwnerID]; ok && hb.IsAlive(now, rs.hostTimeout()) {
+			return rs.state.OwnerID
+		}
+	}
+	return rs.selectSuccessorLocked(now, excludeID)
+}
+
+// selectSuccessorLocked picks the active peer with the oldest LastSeen,
+// excluding excludeID. Empty result means there is no eligible peer.
+// Must be called with rs.mu held.
+func (rs *RoomSync) selectSuccessorLocked(now time.Time, excludeID string) string {
+	var successor string
+	bestTime := now
+	for userID, h := range rs.heartbeats {
+		if userID == excludeID {
+			continue
+		}
+		if h.IsAlive(now, rs.hostTimeout()) && h.LastSeen.Before(bestTime) {
+			bestTime = h.LastSeen
+			successor = userID
+		}
+	}
+	return successor
+}
+
+// migrateHostLocked hands the host role to successor and broadcasts the
+// migration frame. Must be called with rs.mu held.
+func (rs *RoomSync) migrateHostLocked(successor string, now time.Time) {
 	prevHost := rs.state.HostID
 	rs.state.HostID = successor
 	rs.state.Epoch++
@@ -276,6 +332,30 @@ func (rs *RoomSync) checkHostMigrationLocked(now time.Time) {
 		},
 	}
 	rs.broadcastLocked(frame)
+}
+
+// AdoptOwnerIfUnset records the room owner from room.created.v1 and assigns
+// them the host role when the room has no host yet. Used when the event
+// arrives after a subscriber already materialized the room (Init would
+// otherwise no-op and leave the room permanently uncontrollable). Returns
+// true when the host role was adopted.
+func (rs *RoomSync) AdoptOwnerIfUnset(ownerID string) bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if ownerID == "" {
+		return false
+	}
+	if rs.state.OwnerID == "" {
+		rs.state.OwnerID = ownerID
+	}
+	if rs.state.HostID != "" {
+		return false
+	}
+	rs.state.HostID = ownerID
+	rs.state.Epoch++
+	rs.state.EpochStarted = rs.clock.Now()
+	rs.broadcastUpdateLocked()
+	return true
 }
 
 func computeConfidence(activePeers int, rtts []float64) uint32 {
@@ -338,7 +418,21 @@ func (rs *RoomSync) ProcessHeartbeat(
 		go func() { _ = rs.presence.Heartbeat(context.Background(), roomID, userID) }()
 	}
 
-	return t3, serverMediaTime, rs.state.Epoch, int32(hb.DriftMs), int32(hb.SmoothedRTT)
+	return t3, serverMediaTime, rs.state.Epoch, clampInt32(hb.DriftMs), clampInt32(hb.SmoothedRTT)
+}
+
+// clampInt32 converts a float to int32 without the silent wrap-around that
+// turns an out-of-range drift (e.g. after a suspended tab skewed the NTP
+// exchange) into -2147483648 in the API response.
+func clampInt32(v float64) int32 {
+	const max = math.MaxInt32
+	if v > max {
+		return max
+	}
+	if v < -max {
+		return -max
+	}
+	return int32(v)
 }
 
 // ProcessCommand handles a Command RPC.
@@ -388,6 +482,15 @@ func (rs *RoomSync) Recover(sinceEpoch uint64) (snapshot *syncv1.SyncSnapshot, f
 }
 
 // --- subscriber management ---
+
+// Snapshot returns the current authoritative snapshot. Used to hand a fresh
+// subscriber the state immediately instead of waiting for the next periodic
+// broadcast.
+func (rs *RoomSync) Snapshot() *syncv1.SyncSnapshot {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.buildSnapshotLocked()
+}
 
 // RegisterSubscriber creates a channel for receiving broadcast frames.
 func (rs *RoomSync) RegisterSubscriber() chan *syncv1.SubscribeResponse {
@@ -447,10 +550,10 @@ func (rs *RoomSync) buildSnapshotLocked() *syncv1.SyncSnapshot {
 	}
 	return &syncv1.SyncSnapshot{
 		State:           rs.stateToProtoLocked(),
-		DriftEstimateMs: int32(domain.MaxAbsFloats(drifts)),
+		DriftEstimateMs: clampInt32(domain.MaxAbsFloats(drifts)),
 		Confidence:      computeConfidence(activeCount, rtts),
 		ActivePeers:     uint32(activeCount),
-		MedianRttMs:     int32(domain.MedianFloats(rtts)),
+		MedianRttMs:     clampInt32(domain.MedianFloats(rtts)),
 		CapturedAt:      timestamppb.New(now),
 	}
 }

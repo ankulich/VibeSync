@@ -7,6 +7,8 @@ export interface CommandOptions {
   seekToMs?: number;
   /** Playout rate 0.25..4.0 (CommandKind.SET_RATE). */
   rate?: number;
+  /** Media id to load (CommandKind.LOAD_MEDIA). */
+  mediaId?: string;
 }
 
 export interface PlayerControlsProps {
@@ -17,6 +19,12 @@ export interface PlayerControlsProps {
   mediaTitle?: string | null;
   /** Duration of the current media in ms, when known. */
   mediaDurationMs?: number | null;
+  /**
+   * Whether the local user may issue commands. The sync protocol only
+   * accepts commands from the host; false disables the transport UI so
+   * non-hosts are not left pressing buttons that silently fail.
+   */
+  controlsEnabled?: boolean;
 }
 
 /** Re-renders on an interval so the projected position keeps ticking. */
@@ -27,6 +35,7 @@ export default function PlayerControls({
   onCommand,
   mediaTitle,
   mediaDurationMs,
+  controlsEnabled = true,
 }: PlayerControlsProps) {
   // Ticker only exists to force re-renders; the value itself is unused.
   const [, setTick] = useState(0);
@@ -55,7 +64,7 @@ export default function PlayerControls({
   const durationMs = mediaDurationMs ?? 0;
   const maxMs = durationMs > 0 ? durationMs : Math.max(positionMs, 1_000);
   const sliderValue = Math.min(scrubMs ?? positionMs, maxMs);
-  const seekEnabled = durationMs > 0 || positionMs > 0;
+  const seekEnabled = controlsEnabled && (durationMs > 0 || positionMs > 0);
 
   const commitScrub = () => {
     if (scrubMs == null) return;
@@ -106,27 +115,45 @@ export default function PlayerControls({
         <button
           type="button"
           className="btn btn-ghost"
+          disabled={!controlsEnabled}
           onClick={() => onCommand(CommandKind.PREVIOUS)}
         >
           Prev
         </button>
         {isPlaying ? (
-          <button type="button" className="btn btn-primary px-8" onClick={() => onCommand(CommandKind.PAUSE)}>
+          <button
+            type="button"
+            className="btn btn-primary px-8"
+            disabled={!controlsEnabled}
+            onClick={() => onCommand(CommandKind.PAUSE)}
+          >
             Pause
           </button>
         ) : (
-          <button type="button" className="btn btn-primary px-8" onClick={() => onCommand(CommandKind.PLAY)}>
+          <button
+            type="button"
+            className="btn btn-primary px-8"
+            disabled={!controlsEnabled}
+            onClick={() => onCommand(CommandKind.PLAY)}
+          >
             Play
           </button>
         )}
         <button
           type="button"
           className="btn btn-ghost"
+          disabled={!controlsEnabled}
           onClick={() => onCommand(CommandKind.NEXT)}
         >
           Next
         </button>
       </div>
+
+      {!controlsEnabled && (
+        <p className="text-center text-xs text-gray-500">
+          Playback is controlled by the host — you watch in sync automatically.
+        </p>
+      )}
     </div>
   );
 }

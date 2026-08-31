@@ -9,19 +9,23 @@ export interface SearchPanelProps {
   roomId: string;
 }
 
+/**
+ * Spotify track search. YouTube search is gone by design: it required the
+ * YouTube Data API, which VibeSync dropped (ADR-0016) — YouTube videos are
+ * added by pasting a link instead (see AddVideoPanel).
+ */
 export default function SearchPanel({ roomId }: SearchPanelProps) {
-  const [provider, setProvider] = useState<ProviderName>(ProviderName.SPOTIFY);
   const [input, setInput] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [addedRefs, setAddedRefs] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
 
   const searchQuery = useQuery({
-    queryKey: ['provider-search', provider, submittedQuery],
+    queryKey: ['provider-search', ProviderName.SPOTIFY, submittedQuery],
     enabled: submittedQuery.length > 0,
     queryFn: () =>
       getProviderClient().search({
-        provider,
+        provider: ProviderName.SPOTIFY,
         query: submittedQuery,
         page: { limit: 20 },
       }),
@@ -30,7 +34,7 @@ export default function SearchPanel({ roomId }: SearchPanelProps) {
   const addToQueue = useMutation({
     mutationFn: async (result: SearchResult) => {
       const { media } = await getMediaClient().createMedia({
-        kind: provider === ProviderName.YOUTUBE ? MediaKind.VIDEO : MediaKind.AUDIO,
+        kind: MediaKind.AUDIO,
         source: MediaSource.PROVIDER,
         externalRef: result.externalRef,
         title: result.title,
@@ -58,27 +62,12 @@ export default function SearchPanel({ roomId }: SearchPanelProps) {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          className={provider === ProviderName.SPOTIFY ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => setProvider(ProviderName.SPOTIFY)}
-        >
-          Spotify
-        </button>
-        <button
-          type="button"
-          className={provider === ProviderName.YOUTUBE ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => setProvider(ProviderName.YOUTUBE)}
-        >
-          YouTube
-        </button>
-      </div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Spotify search</p>
 
       <form onSubmit={onSubmit} className="flex gap-2">
         <input
           className="input"
-          placeholder={`Search ${provider === ProviderName.SPOTIFY ? 'Spotify' : 'YouTube'}…`}
+          placeholder="Search Spotify…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
