@@ -7,6 +7,8 @@ import { formatTime } from '../lib/sync';
 
 export interface SearchPanelProps {
   roomId: string;
+  /** Whether the local user may add to the queue (owner/grant, ADR-0017). */
+  canAdd?: boolean;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface SearchPanelProps {
  * YouTube Data API, which VibeSync dropped (ADR-0016) — YouTube videos are
  * added by pasting a link instead (see AddVideoPanel).
  */
-export default function SearchPanel({ roomId }: SearchPanelProps) {
+export default function SearchPanel({ roomId, canAdd = true }: SearchPanelProps) {
   const [input, setInput] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [addedRefs, setAddedRefs] = useState<Set<string>>(new Set());
@@ -112,8 +114,9 @@ export default function SearchPanel({ roomId }: SearchPanelProps) {
               <button
                 type="button"
                 className="btn shrink-0 px-3 py-1.5 text-xs"
-                disabled={added || adding}
+                disabled={added || adding || !canAdd}
                 onClick={() => addToQueue.mutate(result)}
+                title={canAdd ? undefined : 'Adding requires permission — ask the room owner'}
               >
                 {added ? 'Added' : adding ? 'Adding…' : 'Add to queue'}
               </button>

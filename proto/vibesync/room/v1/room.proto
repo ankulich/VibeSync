@@ -15,6 +15,24 @@ enum RoomVisibility {
   ROOM_VISIBILITY_PRIVATE = 3;
 }
 
+// RoomPermission is a granular control grant the room owner can give a
+// member (ADR-0017). The owner — and the acting host — implicitly hold all
+// permissions; members hold exactly what they were granted.
+enum RoomPermission {
+  ROOM_PERMISSION_UNSPECIFIED = 0;
+  // Seek the room clock; a granted seek is authoritative and applies to
+  // every viewer, including the owner.
+  ROOM_PERMISSION_SEEK = 1;
+  // Pause and (re)start playback.
+  ROOM_PERMISSION_PAUSE_PLAY = 2;
+  // Switch the room to another queue item (load / next / previous).
+  ROOM_PERMISSION_SWITCH_QUEUE = 3;
+  // Add media to the room queue.
+  ROOM_PERMISSION_ADD_QUEUE = 4;
+  // Remove media from the room queue.
+  ROOM_PERMISSION_REMOVE_QUEUE = 5;
+}
+
 message Room {
   vibesync.common.v1.Id id = 1;
   string slug = 2;
@@ -29,11 +47,13 @@ message Room {
 }
 
 // Member is a user's membership in a room. Returned by GetMembers and used
-// for role management.
+// for role management. Permissions are the owner-granted control grants;
+// the owner row itself carries none (the owner implicitly holds all).
 message Member {
   vibesync.common.v1.Id user_id = 1;
   vibesync.common.v1.RoomRole role = 2;
   google.protobuf.Timestamp joined_at = 3;
+  repeated RoomPermission permissions = 4;
 }
 
 message CreateRoomRequest {
@@ -134,6 +154,32 @@ message UpdateMemberRoleResponse {
   Member member = 1;
 }
 
+// --- permissions (ADR-0017) ---
+
+// GrantPermissions replaces a member's permission set. Owner only; an empty
+// list revokes everything.
+message GrantPermissionsRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id user_id = 2;
+  repeated RoomPermission permissions = 3;
+}
+
+message GrantPermissionsResponse {
+  repeated RoomPermission permissions = 1;
+}
+
+// GetMemberPermissions answers a single member's effective grants. Used by
+// the Sync and Media Services for command/queue authorization and by the UI.
+message GetMemberPermissionsRequest {
+  vibesync.common.v1.Id room_id = 1;
+  vibesync.common.v1.Id user_id = 2;
+}
+
+message GetMemberPermissionsResponse {
+  repeated RoomPermission permissions = 1;
+  bool is_owner = 2;
+}
+
 service RoomService {
   rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
   rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);
@@ -145,4 +191,6 @@ service RoomService {
   rpc GetMembers(GetMembersRequest) returns (GetMembersResponse);
   rpc KickMember(KickMemberRequest) returns (KickMemberResponse);
   rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+  rpc GrantPermissions(GrantPermissionsRequest) returns (GrantPermissionsResponse);
+  rpc GetMemberPermissions(GetMemberPermissionsRequest) returns (GetMemberPermissionsResponse);
 }

@@ -54,6 +54,12 @@ const (
 	// RoomServiceUpdateMemberRoleProcedure is the fully-qualified name of the RoomService's
 	// UpdateMemberRole RPC.
 	RoomServiceUpdateMemberRoleProcedure = "/vibesync.room.v1.RoomService/UpdateMemberRole"
+	// RoomServiceGrantPermissionsProcedure is the fully-qualified name of the RoomService's
+	// GrantPermissions RPC.
+	RoomServiceGrantPermissionsProcedure = "/vibesync.room.v1.RoomService/GrantPermissions"
+	// RoomServiceGetMemberPermissionsProcedure is the fully-qualified name of the RoomService's
+	// GetMemberPermissions RPC.
+	RoomServiceGetMemberPermissionsProcedure = "/vibesync.room.v1.RoomService/GetMemberPermissions"
 )
 
 // RoomServiceClient is a client for the vibesync.room.v1.RoomService service.
@@ -68,6 +74,8 @@ type RoomServiceClient interface {
 	GetMembers(context.Context, *connect.Request[v1.GetMembersRequest]) (*connect.Response[v1.GetMembersResponse], error)
 	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error)
+	GrantPermissions(context.Context, *connect.Request[v1.GrantPermissionsRequest]) (*connect.Response[v1.GrantPermissionsResponse], error)
+	GetMemberPermissions(context.Context, *connect.Request[v1.GetMemberPermissionsRequest]) (*connect.Response[v1.GetMemberPermissionsResponse], error)
 }
 
 // NewRoomServiceClient constructs a client for the vibesync.room.v1.RoomService service. By
@@ -141,21 +149,35 @@ func NewRoomServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(roomServiceMethods.ByName("UpdateMemberRole")),
 			connect.WithClientOptions(opts...),
 		),
+		grantPermissions: connect.NewClient[v1.GrantPermissionsRequest, v1.GrantPermissionsResponse](
+			httpClient,
+			baseURL+RoomServiceGrantPermissionsProcedure,
+			connect.WithSchema(roomServiceMethods.ByName("GrantPermissions")),
+			connect.WithClientOptions(opts...),
+		),
+		getMemberPermissions: connect.NewClient[v1.GetMemberPermissionsRequest, v1.GetMemberPermissionsResponse](
+			httpClient,
+			baseURL+RoomServiceGetMemberPermissionsProcedure,
+			connect.WithSchema(roomServiceMethods.ByName("GetMemberPermissions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // roomServiceClient implements RoomServiceClient.
 type roomServiceClient struct {
-	createRoom       *connect.Client[v1.CreateRoomRequest, v1.CreateRoomResponse]
-	getRoom          *connect.Client[v1.GetRoomRequest, v1.GetRoomResponse]
-	listRooms        *connect.Client[v1.ListRoomsRequest, v1.ListRoomsResponse]
-	joinRoom         *connect.Client[v1.JoinRoomRequest, v1.JoinRoomResponse]
-	updateRoom       *connect.Client[v1.UpdateRoomRequest, v1.UpdateRoomResponse]
-	deleteRoom       *connect.Client[v1.DeleteRoomRequest, v1.DeleteRoomResponse]
-	leaveRoom        *connect.Client[v1.LeaveRoomRequest, v1.LeaveRoomResponse]
-	getMembers       *connect.Client[v1.GetMembersRequest, v1.GetMembersResponse]
-	kickMember       *connect.Client[v1.KickMemberRequest, v1.KickMemberResponse]
-	updateMemberRole *connect.Client[v1.UpdateMemberRoleRequest, v1.UpdateMemberRoleResponse]
+	createRoom           *connect.Client[v1.CreateRoomRequest, v1.CreateRoomResponse]
+	getRoom              *connect.Client[v1.GetRoomRequest, v1.GetRoomResponse]
+	listRooms            *connect.Client[v1.ListRoomsRequest, v1.ListRoomsResponse]
+	joinRoom             *connect.Client[v1.JoinRoomRequest, v1.JoinRoomResponse]
+	updateRoom           *connect.Client[v1.UpdateRoomRequest, v1.UpdateRoomResponse]
+	deleteRoom           *connect.Client[v1.DeleteRoomRequest, v1.DeleteRoomResponse]
+	leaveRoom            *connect.Client[v1.LeaveRoomRequest, v1.LeaveRoomResponse]
+	getMembers           *connect.Client[v1.GetMembersRequest, v1.GetMembersResponse]
+	kickMember           *connect.Client[v1.KickMemberRequest, v1.KickMemberResponse]
+	updateMemberRole     *connect.Client[v1.UpdateMemberRoleRequest, v1.UpdateMemberRoleResponse]
+	grantPermissions     *connect.Client[v1.GrantPermissionsRequest, v1.GrantPermissionsResponse]
+	getMemberPermissions *connect.Client[v1.GetMemberPermissionsRequest, v1.GetMemberPermissionsResponse]
 }
 
 // CreateRoom calls vibesync.room.v1.RoomService.CreateRoom.
@@ -208,6 +230,16 @@ func (c *roomServiceClient) UpdateMemberRole(ctx context.Context, req *connect.R
 	return c.updateMemberRole.CallUnary(ctx, req)
 }
 
+// GrantPermissions calls vibesync.room.v1.RoomService.GrantPermissions.
+func (c *roomServiceClient) GrantPermissions(ctx context.Context, req *connect.Request[v1.GrantPermissionsRequest]) (*connect.Response[v1.GrantPermissionsResponse], error) {
+	return c.grantPermissions.CallUnary(ctx, req)
+}
+
+// GetMemberPermissions calls vibesync.room.v1.RoomService.GetMemberPermissions.
+func (c *roomServiceClient) GetMemberPermissions(ctx context.Context, req *connect.Request[v1.GetMemberPermissionsRequest]) (*connect.Response[v1.GetMemberPermissionsResponse], error) {
+	return c.getMemberPermissions.CallUnary(ctx, req)
+}
+
 // RoomServiceHandler is an implementation of the vibesync.room.v1.RoomService service.
 type RoomServiceHandler interface {
 	CreateRoom(context.Context, *connect.Request[v1.CreateRoomRequest]) (*connect.Response[v1.CreateRoomResponse], error)
@@ -220,6 +252,8 @@ type RoomServiceHandler interface {
 	GetMembers(context.Context, *connect.Request[v1.GetMembersRequest]) (*connect.Response[v1.GetMembersResponse], error)
 	KickMember(context.Context, *connect.Request[v1.KickMemberRequest]) (*connect.Response[v1.KickMemberResponse], error)
 	UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error)
+	GrantPermissions(context.Context, *connect.Request[v1.GrantPermissionsRequest]) (*connect.Response[v1.GrantPermissionsResponse], error)
+	GetMemberPermissions(context.Context, *connect.Request[v1.GetMemberPermissionsRequest]) (*connect.Response[v1.GetMemberPermissionsResponse], error)
 }
 
 // NewRoomServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -289,6 +323,18 @@ func NewRoomServiceHandler(svc RoomServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(roomServiceMethods.ByName("UpdateMemberRole")),
 		connect.WithHandlerOptions(opts...),
 	)
+	roomServiceGrantPermissionsHandler := connect.NewUnaryHandler(
+		RoomServiceGrantPermissionsProcedure,
+		svc.GrantPermissions,
+		connect.WithSchema(roomServiceMethods.ByName("GrantPermissions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	roomServiceGetMemberPermissionsHandler := connect.NewUnaryHandler(
+		RoomServiceGetMemberPermissionsProcedure,
+		svc.GetMemberPermissions,
+		connect.WithSchema(roomServiceMethods.ByName("GetMemberPermissions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/vibesync.room.v1.RoomService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RoomServiceCreateRoomProcedure:
@@ -311,6 +357,10 @@ func NewRoomServiceHandler(svc RoomServiceHandler, opts ...connect.HandlerOption
 			roomServiceKickMemberHandler.ServeHTTP(w, r)
 		case RoomServiceUpdateMemberRoleProcedure:
 			roomServiceUpdateMemberRoleHandler.ServeHTTP(w, r)
+		case RoomServiceGrantPermissionsProcedure:
+			roomServiceGrantPermissionsHandler.ServeHTTP(w, r)
+		case RoomServiceGetMemberPermissionsProcedure:
+			roomServiceGetMemberPermissionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -358,4 +408,12 @@ func (UnimplementedRoomServiceHandler) KickMember(context.Context, *connect.Requ
 
 func (UnimplementedRoomServiceHandler) UpdateMemberRole(context.Context, *connect.Request[v1.UpdateMemberRoleRequest]) (*connect.Response[v1.UpdateMemberRoleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("vibesync.room.v1.RoomService.UpdateMemberRole is not implemented"))
+}
+
+func (UnimplementedRoomServiceHandler) GrantPermissions(context.Context, *connect.Request[v1.GrantPermissionsRequest]) (*connect.Response[v1.GrantPermissionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("vibesync.room.v1.RoomService.GrantPermissions is not implemented"))
+}
+
+func (UnimplementedRoomServiceHandler) GetMemberPermissions(context.Context, *connect.Request[v1.GetMemberPermissionsRequest]) (*connect.Response[v1.GetMemberPermissionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("vibesync.room.v1.RoomService.GetMemberPermissions is not implemented"))
 }

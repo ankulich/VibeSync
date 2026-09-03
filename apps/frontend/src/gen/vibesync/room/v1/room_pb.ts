@@ -40,6 +40,65 @@ proto3.util.setEnumType(RoomVisibility, "vibesync.room.v1.RoomVisibility", [
 ]);
 
 /**
+ * RoomPermission is a granular control grant the room owner can give a
+ * member (ADR-0017). The owner — and the acting host — implicitly hold all
+ * permissions; members hold exactly what they were granted.
+ *
+ * @generated from enum vibesync.room.v1.RoomPermission
+ */
+export enum RoomPermission {
+  /**
+   * @generated from enum value: ROOM_PERMISSION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Seek the room clock; a granted seek is authoritative and applies to
+   * every viewer, including the owner.
+   *
+   * @generated from enum value: ROOM_PERMISSION_SEEK = 1;
+   */
+  SEEK = 1,
+
+  /**
+   * Pause and (re)start playback.
+   *
+   * @generated from enum value: ROOM_PERMISSION_PAUSE_PLAY = 2;
+   */
+  PAUSE_PLAY = 2,
+
+  /**
+   * Switch the room to another queue item (load / next / previous).
+   *
+   * @generated from enum value: ROOM_PERMISSION_SWITCH_QUEUE = 3;
+   */
+  SWITCH_QUEUE = 3,
+
+  /**
+   * Add media to the room queue.
+   *
+   * @generated from enum value: ROOM_PERMISSION_ADD_QUEUE = 4;
+   */
+  ADD_QUEUE = 4,
+
+  /**
+   * Remove media from the room queue.
+   *
+   * @generated from enum value: ROOM_PERMISSION_REMOVE_QUEUE = 5;
+   */
+  REMOVE_QUEUE = 5,
+}
+// Retrieve enum metadata with: proto3.getEnumType(RoomPermission)
+proto3.util.setEnumType(RoomPermission, "vibesync.room.v1.RoomPermission", [
+  { no: 0, name: "ROOM_PERMISSION_UNSPECIFIED" },
+  { no: 1, name: "ROOM_PERMISSION_SEEK" },
+  { no: 2, name: "ROOM_PERMISSION_PAUSE_PLAY" },
+  { no: 3, name: "ROOM_PERMISSION_SWITCH_QUEUE" },
+  { no: 4, name: "ROOM_PERMISSION_ADD_QUEUE" },
+  { no: 5, name: "ROOM_PERMISSION_REMOVE_QUEUE" },
+]);
+
+/**
  * @generated from message vibesync.room.v1.Room
  */
 export class Room extends Message<Room> {
@@ -132,7 +191,8 @@ export class Room extends Message<Room> {
 
 /**
  * Member is a user's membership in a room. Returned by GetMembers and used
- * for role management.
+ * for role management. Permissions are the owner-granted control grants;
+ * the owner row itself carries none (the owner implicitly holds all).
  *
  * @generated from message vibesync.room.v1.Member
  */
@@ -152,6 +212,11 @@ export class Member extends Message<Member> {
    */
   joinedAt?: Timestamp;
 
+  /**
+   * @generated from field: repeated vibesync.room.v1.RoomPermission permissions = 4;
+   */
+  permissions: RoomPermission[] = [];
+
   constructor(data?: PartialMessage<Member>) {
     super();
     proto3.util.initPartial(data, this);
@@ -163,6 +228,7 @@ export class Member extends Message<Member> {
     { no: 1, name: "user_id", kind: "message", T: Id },
     { no: 2, name: "role", kind: "enum", T: proto3.getEnumType(RoomRole) },
     { no: 3, name: "joined_at", kind: "message", T: Timestamp },
+    { no: 4, name: "permissions", kind: "enum", T: proto3.getEnumType(RoomPermission), repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Member {
@@ -1016,6 +1082,184 @@ export class UpdateMemberRoleResponse extends Message<UpdateMemberRoleResponse> 
 
   static equals(a: UpdateMemberRoleResponse | PlainMessage<UpdateMemberRoleResponse> | undefined, b: UpdateMemberRoleResponse | PlainMessage<UpdateMemberRoleResponse> | undefined): boolean {
     return proto3.util.equals(UpdateMemberRoleResponse, a, b);
+  }
+}
+
+/**
+ * GrantPermissions replaces a member's permission set. Owner only; an empty
+ * list revokes everything.
+ *
+ * @generated from message vibesync.room.v1.GrantPermissionsRequest
+ */
+export class GrantPermissionsRequest extends Message<GrantPermissionsRequest> {
+  /**
+   * @generated from field: vibesync.common.v1.Id room_id = 1;
+   */
+  roomId?: Id;
+
+  /**
+   * @generated from field: vibesync.common.v1.Id user_id = 2;
+   */
+  userId?: Id;
+
+  /**
+   * @generated from field: repeated vibesync.room.v1.RoomPermission permissions = 3;
+   */
+  permissions: RoomPermission[] = [];
+
+  constructor(data?: PartialMessage<GrantPermissionsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "vibesync.room.v1.GrantPermissionsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "room_id", kind: "message", T: Id },
+    { no: 2, name: "user_id", kind: "message", T: Id },
+    { no: 3, name: "permissions", kind: "enum", T: proto3.getEnumType(RoomPermission), repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GrantPermissionsRequest {
+    return new GrantPermissionsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GrantPermissionsRequest {
+    return new GrantPermissionsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GrantPermissionsRequest {
+    return new GrantPermissionsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GrantPermissionsRequest | PlainMessage<GrantPermissionsRequest> | undefined, b: GrantPermissionsRequest | PlainMessage<GrantPermissionsRequest> | undefined): boolean {
+    return proto3.util.equals(GrantPermissionsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message vibesync.room.v1.GrantPermissionsResponse
+ */
+export class GrantPermissionsResponse extends Message<GrantPermissionsResponse> {
+  /**
+   * @generated from field: repeated vibesync.room.v1.RoomPermission permissions = 1;
+   */
+  permissions: RoomPermission[] = [];
+
+  constructor(data?: PartialMessage<GrantPermissionsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "vibesync.room.v1.GrantPermissionsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "permissions", kind: "enum", T: proto3.getEnumType(RoomPermission), repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GrantPermissionsResponse {
+    return new GrantPermissionsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GrantPermissionsResponse {
+    return new GrantPermissionsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GrantPermissionsResponse {
+    return new GrantPermissionsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GrantPermissionsResponse | PlainMessage<GrantPermissionsResponse> | undefined, b: GrantPermissionsResponse | PlainMessage<GrantPermissionsResponse> | undefined): boolean {
+    return proto3.util.equals(GrantPermissionsResponse, a, b);
+  }
+}
+
+/**
+ * GetMemberPermissions answers a single member's effective grants. Used by
+ * the Sync and Media Services for command/queue authorization and by the UI.
+ *
+ * @generated from message vibesync.room.v1.GetMemberPermissionsRequest
+ */
+export class GetMemberPermissionsRequest extends Message<GetMemberPermissionsRequest> {
+  /**
+   * @generated from field: vibesync.common.v1.Id room_id = 1;
+   */
+  roomId?: Id;
+
+  /**
+   * @generated from field: vibesync.common.v1.Id user_id = 2;
+   */
+  userId?: Id;
+
+  constructor(data?: PartialMessage<GetMemberPermissionsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "vibesync.room.v1.GetMemberPermissionsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "room_id", kind: "message", T: Id },
+    { no: 2, name: "user_id", kind: "message", T: Id },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMemberPermissionsRequest {
+    return new GetMemberPermissionsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetMemberPermissionsRequest {
+    return new GetMemberPermissionsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetMemberPermissionsRequest {
+    return new GetMemberPermissionsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetMemberPermissionsRequest | PlainMessage<GetMemberPermissionsRequest> | undefined, b: GetMemberPermissionsRequest | PlainMessage<GetMemberPermissionsRequest> | undefined): boolean {
+    return proto3.util.equals(GetMemberPermissionsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message vibesync.room.v1.GetMemberPermissionsResponse
+ */
+export class GetMemberPermissionsResponse extends Message<GetMemberPermissionsResponse> {
+  /**
+   * @generated from field: repeated vibesync.room.v1.RoomPermission permissions = 1;
+   */
+  permissions: RoomPermission[] = [];
+
+  /**
+   * @generated from field: bool is_owner = 2;
+   */
+  isOwner = false;
+
+  constructor(data?: PartialMessage<GetMemberPermissionsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "vibesync.room.v1.GetMemberPermissionsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "permissions", kind: "enum", T: proto3.getEnumType(RoomPermission), repeated: true },
+    { no: 2, name: "is_owner", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMemberPermissionsResponse {
+    return new GetMemberPermissionsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetMemberPermissionsResponse {
+    return new GetMemberPermissionsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetMemberPermissionsResponse {
+    return new GetMemberPermissionsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetMemberPermissionsResponse | PlainMessage<GetMemberPermissionsResponse> | undefined, b: GetMemberPermissionsResponse | PlainMessage<GetMemberPermissionsResponse> | undefined): boolean {
+    return proto3.util.equals(GetMemberPermissionsResponse, a, b);
   }
 }
 

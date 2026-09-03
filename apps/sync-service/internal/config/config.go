@@ -16,13 +16,14 @@ import (
 
 // Config is the full Sync Service configuration.
 type Config struct {
-	DB    DBConfig    `mapstructure:"db"`
-	Redis RedisConfig `mapstructure:"redis"`
-	Kafka KafkaConfig `mapstructure:"kafka"`
-	Sync  SyncConfig  `mapstructure:"sync"`
-	Web   WebConfig   `mapstructure:"web"`
-	Log   LogConfig   `mapstructure:"log"`
-	OTel  OTelConfig  `mapstructure:"otel"`
+	DB             DBConfig    `mapstructure:"db"`
+	Redis          RedisConfig `mapstructure:"redis"`
+	Kafka          KafkaConfig `mapstructure:"kafka"`
+	Sync           SyncConfig  `mapstructure:"sync"`
+	Web            WebConfig   `mapstructure:"web"`
+	Log            LogConfig   `mapstructure:"log"`
+	OTel           OTelConfig  `mapstructure:"otel"`
+	RoomServiceAddr string     `mapstructure:"room_service_addr"`
 }
 
 // DBConfig is the Postgres connection.
@@ -112,6 +113,7 @@ func Defaults() map[string]any {
 		"sync.recover_ring_buffer_size":     32,
 		"sync.discontinuity_threshold_ms":   2000.0,
 		"sync.drift_correction_enabled":     false,
+		"room_service_addr":                 "localhost:8082",
 		"web.addr":                          ":8083",
 		"web.rate_limit_per_second":         10,
 		"log.level":                         "info",

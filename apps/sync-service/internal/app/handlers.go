@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	syncv1 "vibesync/gen/go/vibesync/sync/v1"
+	roomv1 "vibesync/gen/go/vibesync/room/v1"
 	vberr "vibesync/libs/errors"
 	vbkafka "vibesync/libs/kafka"
 
@@ -111,7 +112,9 @@ func (s *Service) Heartbeat(
 // --- Command (unary, fencing-token checked) ---
 
 // Command applies an authoritative playback command (play/pause/seek/etc.).
-// The originator must be the host with a valid fencing token.
+// Authorization (ADR-0017): the host and the owner command freely; a guest
+// must hold the owner-granted permission matching the command kind. Fencing
+// tokens still apply to everyone.
 func (s *Service) Command(
 	ctx context.Context,
 	req *connect.Request[syncv1.CommandRequest],
@@ -134,8 +137,12 @@ func (s *Service) Command(
 	}
 
 	kind := domain.CommandKind(req.Msg.GetKind())
-	epoch, accepted, reason := room.ProcessCommand(
-		subject.UserID, kind,
+	if err := s.authorizeCommand(ctx, room, subject.UserID, kind); err != nil {
+		return nil, err
+	}
+
+	epoch, accepted, reason := room.ProcessCommandAuthorized(
+		kind,
 		req.Msg.SeekToMs, req.Msg.Rate,
 		req.Msg.GetMediaId().GetValue(),
 		req.Msg.GetFencingToken(),
@@ -146,6 +153,41 @@ func (s *Service) Command(
 		Accepted: accepted,
 		Reason:   reason,
 	}), nil
+}
+
+// commandPermission maps a command kind to the RoomPermission a guest needs
+// to issue it. Hosts and the owner bypass this entirely.
+func commandPermission(kind domain.CommandKind) (roomv1.RoomPermission, bool) {
+	switch kind {
+	case domain.CmdSeek:
+		return roomv1.RoomPermission_ROOM_PERMISSION_SEEK, true
+	case domain.CmdPlay, domain.CmdPause, domain.CmdSetRate:
+		return roomv1.RoomPermission_ROOM_PERMISSION_PAUSE_PLAY, true
+	case domain.CmdLoadMedia, domain.CmdNext, domain.CmdPrevious:
+		return roomv1.RoomPermission_ROOM_PERMISSION_SWITCH_QUEUE, true
+	default:
+		return roomv1.RoomPermission_ROOM_PERMISSION_UNSPECIFIED, false
+	}
+}
+
+// authorizeCommand enforces ADR-0017: host/owner pass; a guest needs the
+// grant matching the command kind.
+func (s *Service) authorizeCommand(ctx context.Context, room *RoomSync, userID string, kind domain.CommandKind) error {
+	if userID == room.HostID() || userID == room.OwnerID() {
+		return nil
+	}
+	perm, ok := commandPermission(kind)
+	if !ok {
+		return vberr.PermissionDenied("command", "room:"+room.roomID)
+	}
+	allowed, err := s.perms.Has(ctx, room.roomID, userID, perm)
+	if err != nil {
+		return vberr.Internal("PERMISSION_CHECK_FAILED", err.Error()).WithCause(err)
+	}
+	if !allowed {
+		return vberr.PermissionDenied("command", "room:"+room.roomID)
+	}
+	return nil
 }
 
 // --- Recover (unary) ---

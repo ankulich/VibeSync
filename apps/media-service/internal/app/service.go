@@ -22,6 +22,7 @@ type Service struct {
 	pool   ports.Pool
 	media  ports.MediaRepo
 	queue  ports.QueueRepo
+	perms  ports.RoomPermissions
 	outbox ports.OutboxWriter
 	clock  ports.Clock
 	idgen  ports.IDGen
@@ -33,6 +34,7 @@ type Deps struct {
 	Pool   ports.Pool
 	Media  ports.MediaRepo
 	Queue  ports.QueueRepo
+	Perms  ports.RoomPermissions
 	Outbox ports.OutboxWriter
 	Clock  ports.Clock
 	IDGen  ports.IDGen
@@ -43,9 +45,12 @@ func New(d Deps) *Service {
 	if d.Pool == nil || d.Media == nil || d.Queue == nil || d.Outbox == nil || d.Clock == nil || d.IDGen == nil {
 		panic("media/app: all core deps are required")
 	}
+	if d.Perms == nil {
+		panic("media/app: room permissions port is required")
+	}
 	return &Service{
 		cfg: d.Cfg, pool: d.Pool, media: d.Media, queue: d.Queue,
-		outbox: d.Outbox, clock: d.Clock, idgen: d.IDGen,
+		perms: d.Perms, outbox: d.Outbox, clock: d.Clock, idgen: d.IDGen,
 	}
 }
 

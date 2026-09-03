@@ -24,6 +24,7 @@ type Service struct {
 	states   ports.SyncStateRepo
 	outbox   ports.OutboxWriter
 	presence ports.Presence
+	perms    ports.RoomPermissions
 	clock    ports.Clock
 	idgen    ports.IDGen
 	logger   Logger
@@ -46,6 +47,7 @@ type Deps struct {
 	States   ports.SyncStateRepo
 	Outbox   ports.OutboxWriter
 	Presence ports.Presence
+	Perms    ports.RoomPermissions
 	Clock    ports.Clock
 	IDGen    ports.IDGen
 	Logger   Logger
@@ -59,9 +61,12 @@ func New(d Deps) *Service {
 	if d.Logger == nil {
 		panic("sync/app: logger is required")
 	}
+	if d.Perms == nil {
+		panic("sync/app: room permissions port is required")
+	}
 	s := &Service{
 		cfg: d.Cfg, pool: d.Pool, states: d.States, outbox: d.Outbox,
-		presence: d.Presence, clock: d.Clock, idgen: d.IDGen, logger: d.Logger,
+		presence: d.Presence, perms: d.Perms, clock: d.Clock, idgen: d.IDGen, logger: d.Logger,
 	}
 	s.manager = NewRoomManager(d.Cfg, d.Pool, d.States, d.Outbox, d.Presence, d.Clock, d.IDGen, d.Logger)
 	return s

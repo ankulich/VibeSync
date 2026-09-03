@@ -435,7 +435,7 @@ func clampInt32(v float64) int32 {
 	return int32(v)
 }
 
-// ProcessCommand handles a Command RPC.
+// ProcessCommand handles a Command RPC. Host-only authorization.
 func (rs *RoomSync) ProcessCommand(userID string, kind domain.CommandKind, seekToMs *int64, rate *float64, mediaID string, fencingToken uint64) (epoch uint64, accepted bool, reason string) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -450,11 +450,43 @@ func (rs *RoomSync) ProcessCommand(userID string, kind domain.CommandKind, seekT
 		return rs.state.Epoch, false, "NOT_HOST"
 	}
 
+	return rs.applyCommandLocked(kind, seekToMs, rate, mediaID, fencingToken)
+}
+
+// ProcessCommandAuthorized applies a command whose authorization was already
+// performed by the caller (host/owner, or a guest holding the matching
+// RoomPermission grant — ADR-0017). Fencing still applies.
+func (rs *RoomSync) ProcessCommandAuthorized(kind domain.CommandKind, seekToMs *int64, rate *float64, mediaID string, fencingToken uint64) (epoch uint64, accepted bool, reason string) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.applyCommandLocked(kind, seekToMs, rate, mediaID, fencingToken)
+}
+
+// applyCommandLocked runs the fencing check and applies the command.
+// Must be called with rs.mu held.
+func (rs *RoomSync) applyCommandLocked(kind domain.CommandKind, seekToMs *int64, rate *float64, mediaID string, fencingToken uint64) (epoch uint64, accepted bool, reason string) {
+	if fencingToken < rs.state.FencingToken {
+		return rs.state.Epoch, false, "STALE_FENCING_TOKEN"
+	}
 	nowMs := rs.clock.NowMs()
 	now := rs.clock.Now()
 	rs.state.ApplyCommand(kind, seekToMs, rate, mediaID, nowMs, now)
 	rs.broadcastUpdateLocked()
 	return rs.state.Epoch, true, ""
+}
+
+// HostID returns the current host.
+func (rs *RoomSync) HostID() string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.state.HostID
+}
+
+// OwnerID returns the room owner ("" when unknown).
+func (rs *RoomSync) OwnerID() string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.state.OwnerID
 }
 
 // Recover replays buffered frames or returns a full snapshot.

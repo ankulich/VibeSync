@@ -18,11 +18,12 @@ import (
 
 // Service is the Room Service use-case facade.
 type Service struct {
-	cfg     config.Config
-	pool    ports.Pool
-	rooms   ports.RoomRepo
+	cfg    config.Config
+	pool   ports.Pool
+	rooms  ports.RoomRepo
 	members ports.MemberRepo
 	invites ports.InviteRepo
+	perms   ports.PermissionRepo
 	outbox  ports.OutboxWriter
 	clock   ports.Clock
 	idgen   ports.IDGen
@@ -35,6 +36,7 @@ type Deps struct {
 	Rooms   ports.RoomRepo
 	Members ports.MemberRepo
 	Invites ports.InviteRepo
+	Perms   ports.PermissionRepo
 	Outbox  ports.OutboxWriter
 	Clock   ports.Clock
 	IDGen   ports.IDGen
@@ -47,7 +49,7 @@ func New(d Deps) *Service {
 	}
 	return &Service{
 		cfg: d.Cfg, pool: d.Pool, rooms: d.Rooms, members: d.Members,
-		invites: d.Invites, outbox: d.Outbox, clock: d.Clock, idgen: d.IDGen,
+		invites: d.Invites, perms: d.Perms, outbox: d.Outbox, clock: d.Clock, idgen: d.IDGen,
 	}
 }
 

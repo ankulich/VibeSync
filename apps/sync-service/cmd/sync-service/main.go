@@ -28,6 +28,7 @@ import (
 	"vibesync/apps/sync-service/internal/app"
 	"vibesync/apps/sync-service/internal/config"
 	"vibesync/apps/sync-service/internal/infra/events"
+	"vibesync/apps/sync-service/internal/infra/roomclient"
 	"vibesync/apps/sync-service/internal/infra/migrate"
 	"vibesync/apps/sync-service/internal/infra/postgres"
 	vbredis "vibesync/apps/sync-service/internal/infra/redis"
@@ -157,6 +158,7 @@ func run() error {
 		States:   postgres.NewSyncStateRepo(),
 		Outbox:   postgres.NewOutboxWriter(),
 		Presence: presence,
+		Perms:    roomclient.NewClient(http.DefaultClient, "http://"+cfg.RoomServiceAddr),
 		Clock:    systemClock{},
 		IDGen:    ulidGen{},
 		Logger:   app.NewSlogAdapter(logger),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PlaybackStatus, type SyncState } from '../gen/vibesync/sync/v1/sync_pb';
+import { loadSettings } from '../lib/settings';
 import { advanceMediaTime } from '../lib/sync';
 
 export interface YouTubePlayerProps {
@@ -11,12 +12,16 @@ export interface YouTubePlayerProps {
   onDuration?: (durationMs: number) => void;
 }
 
-/** How often the sync loop compares the player against the projected position. */
-const SYNC_TICK_MS = 250;
-/** Beyond this drift (ms) the player is hard-corrected with a seek. */
-const HARD_SEEK_DRIFT_MS = 750;
-/** Below this |drift| (ms) nothing is corrected — imperceptible and stable. */
-const SOFT_DRIFT_FLOOR_MS = 150;
+/**
+ * Drift tolerances come from the runtime settings module (ADR-0017):
+ * within [driftIgnoreMs, driftResyncMs] the divergence between a viewer
+ * and the authoritative clock is accepted as-is — 0.3–0.5 s of slack
+ * keeps playout stable instead of constantly seeking.
+ */
+const SETTINGS = loadSettings();
+const SYNC_TICK_MS = SETTINGS.syncPlayer.syncTickMs;
+const DRIFT_IGNORE_MS = SETTINGS.syncPlayer.driftIgnoreMs;
+const HARD_SEEK_DRIFT_MS = SETTINGS.syncPlayer.driftResyncMs;
 /** Playback rates the IFrame player accepts (per API docs). */
 const SUPPORTED_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -230,7 +235,7 @@ export default function YouTubePlayer({ videoId, syncState, onDuration }: YouTub
       // gentler correction, so we let it ride.
       const needsSeek =
         Math.abs(driftMs) > HARD_SEEK_DRIFT_MS ||
-        (reanchor && Math.abs(driftMs) > SOFT_DRIFT_FLOOR_MS);
+        (reanchor && Math.abs(driftMs) > DRIFT_IGNORE_MS);
       if (needsSeek) {
         player.seekTo(target, true);
       }

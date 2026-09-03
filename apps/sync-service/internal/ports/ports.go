@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vibesync/apps/sync-service/internal/domain"
+	roomv1 "vibesync/gen/go/vibesync/room/v1"
 	vboutbox "vibesync/libs/outbox"
 )
 
@@ -53,6 +54,14 @@ type Clock interface {
 // IDGen generates canonical ULIDs.
 type IDGen interface {
 	New() string
+}
+
+// RoomPermissions answers whether a user holds a specific owner-granted room
+// permission (ADR-0017). Implemented by the Room Service client adapter.
+type RoomPermissions interface {
+	// Has reports whether userID holds perm in the room (the Room Service
+	// answers true for the owner regardless of stored grants).
+	Has(ctx context.Context, roomID, userID string, perm roomv1.RoomPermission) (bool, error)
 }
 
 // ErrNotFound is the canonical not-found sentinel.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMediaClient, getRoomClient, getSyncClient } from '../api/clients';
 import AddVideoPanel from '../components/AddVideoPanel';
 import MemberList from '../components/MemberList';
@@ -15,6 +15,7 @@ import { useSyncStream } from '../hooks/useSyncStream';
 import { useAuthStore } from '../stores/auth';
 import { Id } from '../gen/vibesync/common/v1/common_pb';
 import { MediaKind, MediaSource, type Media } from '../gen/vibesync/media/v1/media_pb';
+import { RoomPermission, type RoomPermission as RoomPermissionType } from '../gen/vibesync/room/v1/room_pb';
 import { CommandKind, CommandRequest, type SyncState } from '../gen/vibesync/sync/v1/sync_pb';
 
 type SidebarTab = 'queue' | 'members' | 'add' | 'upload';
@@ -102,10 +103,21 @@ export default function RoomPage() {
     (currentMediaId != null ? mediaDetails[currentMediaId] : undefined) ??
     currentMediaQuery.data?.media;
 
-  // Host check: sync commands are host-only, so the transport UI is disabled
-  // for everyone else instead of letting buttons fail silently server-side.
+  // Identity + control grants (ADR-0017). The host and the room owner hold
+  // every control implicitly; a guest holds exactly the permissions the
+  // owner granted them (from the members list).
   const userId = useAuthStore((s) => s.userId);
   const isHost = syncState?.hostId != null && syncState.hostId.value === userId;
+  const room = roomQuery.data?.room;
+  const isRoomOwner = room?.ownerId != null && room.ownerId.value === userId;
+  const myMember = membersQuery.data?.members.find((m) => m.userId?.value === userId);
+  const myPermissions = new Set(myMember?.permissions ?? []);
+  const controlsAll = isHost || isRoomOwner;
+  const canSeek = controlsAll || myPermissions.has(RoomPermission.SEEK);
+  const canPlayPause = controlsAll || myPermissions.has(RoomPermission.PAUSE_PLAY);
+  const canSwitchQueue = controlsAll || myPermissions.has(RoomPermission.SWITCH_QUEUE);
+  const canAddQueue = isRoomOwner || myPermissions.has(RoomPermission.ADD_QUEUE);
+  const canRemoveQueue = isRoomOwner || myPermissions.has(RoomPermission.REMOVE_QUEUE);
 
   // Add-by-link YouTube items carry no duration in metadata (oEmbed has
   // none); the IFrame player reports the real one once it loads.
@@ -123,6 +135,20 @@ export default function RoomPage() {
     currentMedia.externalRef.length > 0;
 
   const [tab, setTab] = useState<SidebarTab>('queue');
+  const queryClient = useQueryClient();
+
+  /** Owner action: replace a member's permission set (ADR-0017). */
+  const grantPermissions = useMutation({
+    mutationFn: (input: { userId: string; permissions: RoomPermissionType[] }) =>
+      getRoomClient().grantPermissions({
+        roomId: { value: activeRoomId },
+        userId: { value: input.userId },
+        permissions: input.permissions,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['members', activeRoomId] });
+    },
+  });
 
   /** Sends a playback command stamped with the latest fencing token. */
   const sendCommand = useCallback(
@@ -149,15 +175,63 @@ export default function RoomPage() {
     [activeRoomId],
   );
 
-  /** Loads a queued media into the room and starts playback (host-only). */
-  const playNow = useCallback(
-    (mediaId: string) => {
-      // LOAD_MEDIA resets to position 0 paused; follow with PLAY so the
-      // click is enough to start the room clock.
+  /** Loads a queued media into the room, resuming playback when asked. */
+  const loadMedia = useCallback(
+    (mediaId: string, keepPlaying: boolean) => {
+      // LOAD_MEDIA resets to position 0 paused; follow with PLAY when the
+      // room was playing so switching never stops the session.
       sendCommand(CommandKind.LOAD_MEDIA, { mediaId });
-      sendCommand(CommandKind.PLAY);
+      if (keepPlaying) {
+        sendCommand(CommandKind.PLAY);
+      }
     },
     [sendCommand],
+  );
+
+  /** Loads a queued media into the room and starts playback. */
+  const playNow = useCallback((mediaId: string) => loadMedia(mediaId, true), [loadMedia]);
+
+  /**
+   * NEXT/PREVIOUS are resolved client-side from the queue (the sync
+   * protocol accepts them as no-ops — the queue lives in the Media
+   * Service): NEXT loads the item after the current one, PREVIOUS loads
+   * the one before it, or restarts the current item at the queue head.
+   */
+  const skip = useCallback(
+    (dir: 1 | -1) => {
+      const items = queueItems.filter((i) => i.mediaId?.value);
+      if (items.length === 0) return;
+      const idx = items.findIndex((i) => i.mediaId?.value === currentMediaId);
+      if (dir > 0) {
+        const next = (idx >= 0 ? items[idx + 1] : items[0])?.mediaId?.value;
+        if (next) loadMedia(next, true);
+        return;
+      }
+      const prev = idx > 0 ? items[idx - 1]?.mediaId?.value : undefined;
+      if (prev) {
+        loadMedia(prev, true);
+        return;
+      }
+      // Queue head (or current media not queued): restart from the top.
+      sendCommand(CommandKind.SEEK, { seekToMs: 0 });
+    },
+    [queueItems, currentMediaId, loadMedia, sendCommand],
+  );
+
+  /** Transport dispatch: resolve NEXT/PREVIOUS locally, pass the rest. */
+  const dispatchCommand = useCallback(
+    (kind: CommandKind, opts?: CommandOptions) => {
+      if (kind === CommandKind.NEXT) {
+        skip(1);
+        return;
+      }
+      if (kind === CommandKind.PREVIOUS) {
+        skip(-1);
+        return;
+      }
+      sendCommand(kind, opts);
+    },
+    [skip, sendCommand],
   );
 
   if (!roomId) {
@@ -168,7 +242,6 @@ export default function RoomPage() {
     );
   }
 
-  const room = roomQuery.data?.room;
   const memberCount = membersQuery.data?.members.length ?? room?.memberCount ?? 0;
 
   const tabs: Array<{ id: SidebarTab; label: string }> = [
@@ -180,7 +253,7 @@ export default function RoomPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 bg-surface-raised px-6 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-gray-800 bg-surface-raised px-6 py-3">
         <div className="min-w-0">
           <Link to="/rooms" className="text-xs text-gray-400 transition-colors hover:text-gray-200">
             ← Rooms
@@ -194,6 +267,19 @@ export default function RoomPage() {
             ) : null}
           </h1>
         </div>
+
+        {/* Room transport: prev / play-pause / seek / next (ADR-0017 grants). */}
+        <div className="order-3 flex min-w-0 flex-1 justify-center lg:order-none">
+          <PlayerControls
+            syncState={syncState}
+            onCommand={dispatchCommand}
+            mediaDurationMs={effectiveDurationMs}
+            canSeek={canSeek}
+            canPlayPause={canPlayPause}
+            canSwitch={canSwitchQueue}
+          />
+        </div>
+
         <SyncIndicator
           driftMs={clientDriftMs}
           rttMs={smoothedRttMs}
@@ -210,50 +296,9 @@ export default function RoomPage() {
               syncState={syncState}
               onDuration={setPlayerDurationMs}
             />
-          ) : null}
-
-          <PlayerControls
-            syncState={syncState}
-            onCommand={sendCommand}
-            mediaTitle={currentMedia?.title ?? null}
-            mediaDurationMs={effectiveDurationMs}
-            controlsEnabled={isHost}
-          />
-
-          {!isYouTubeVideo && (
-            <section className="card">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Now playing
-              </h2>
-              {currentMedia ? (
-                <div className="mt-3 flex items-center gap-4">
-                  {currentMedia.coverUrl ? (
-                    <img
-                      src={currentMedia.coverUrl}
-                      alt=""
-                      className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-surface-overlay text-gray-500">
-                      ♪
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{currentMedia.title}</p>
-                    <p className="truncate text-sm text-gray-400">
-                      {currentMedia.artist || 'Unknown artist'}
-                    </p>
-                    <p className="mt-1 truncate text-xs text-gray-500">
-                      {MediaKind[currentMedia.kind] ?? 'UNKNOWN'} · via{' '}
-                      {MediaSource[currentMedia.source] ?? 'UNKNOWN'} · ref {currentMedia.externalRef}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-gray-400">
-                  Nothing loaded. Add a YouTube link or a Spotify track to start the room clock.
-                </p>
-              )}
+          ) : (
+            <section className="card flex items-center justify-center py-12 text-sm text-gray-400">
+              Nothing loaded. Add a YouTube link or a Spotify track to start the room clock.
             </section>
           )}
         </main>
@@ -283,15 +328,27 @@ export default function RoomPage() {
                 queueItems={queueItems}
                 mediaDetails={mediaDetails}
                 currentMediaId={currentMediaId}
-                isHost={isHost}
-                onPlayNow={playNow}
+                canSwitch={canSwitchQueue}
+                canRemove={canRemoveQueue}
+                onPlayNow={canSwitchQueue ? playNow : undefined}
               />
             )}
-            {tab === 'members' && <MemberList members={membersQuery.data?.members ?? []} />}
+            {tab === 'members' && (
+              <MemberList
+                members={membersQuery.data?.members ?? []}
+                isOwner={isRoomOwner}
+                grantingUserId={grantPermissions.isPending ? grantPermissions.variables?.userId ?? null : null}
+                onGrant={
+                  isRoomOwner
+                    ? (userId, permissions) => grantPermissions.mutate({ userId, permissions })
+                    : undefined
+                }
+              />
+            )}
             {tab === 'add' && (
               <div>
-                <AddVideoPanel roomId={roomId} />
-                <SearchPanel roomId={roomId} />
+                <AddVideoPanel roomId={roomId} canAdd={canAddQueue} />
+                <SearchPanel roomId={roomId} canAdd={canAddQueue} />
               </div>
             )}
             {tab === 'upload' && <UploadPanel />}

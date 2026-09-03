@@ -40,6 +40,14 @@ type InviteRepo interface {
 	Delete(ctx context.Context, tx pgx.Tx, code string) error
 }
 
+// PermissionRepo persists owner-granted member permissions (ADR-0017).
+type PermissionRepo interface {
+	Set(ctx context.Context, tx pgx.Tx, roomID, userID string, perms domain.Permissions) error
+	Get(ctx context.Context, tx pgx.Tx, roomID, userID string) (domain.Permissions, error)
+	ListByRoom(ctx context.Context, tx pgx.Tx, roomID string) (map[string]domain.Permissions, error)
+	Delete(ctx context.Context, tx pgx.Tx, roomID, userID string) error
+}
+
 // OutboxWriter stages events in the same tx as the domain write.
 type OutboxWriter interface {
 	Append(ctx context.Context, tx pgx.Tx, events ...vboutbox.Event) error

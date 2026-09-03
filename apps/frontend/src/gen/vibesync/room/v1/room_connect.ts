@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateRoomRequest, CreateRoomResponse, DeleteRoomRequest, DeleteRoomResponse, GetMembersRequest, GetMembersResponse, GetRoomRequest, GetRoomResponse, JoinRoomRequest, JoinRoomResponse, KickMemberRequest, KickMemberResponse, LeaveRoomRequest, LeaveRoomResponse, ListRoomsRequest, ListRoomsResponse, UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateRoomRequest, UpdateRoomResponse } from "./room_pb";
+import { CreateRoomRequest, CreateRoomResponse, DeleteRoomRequest, DeleteRoomResponse, GetMemberPermissionsRequest, GetMemberPermissionsResponse, GetMembersRequest, GetMembersResponse, GetRoomRequest, GetRoomResponse, GrantPermissionsRequest, GrantPermissionsResponse, JoinRoomRequest, JoinRoomResponse, KickMemberRequest, KickMemberResponse, LeaveRoomRequest, LeaveRoomResponse, ListRoomsRequest, ListRoomsResponse, UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateRoomRequest, UpdateRoomResponse } from "./room_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -100,6 +100,24 @@ export const RoomService = {
       name: "UpdateMemberRole",
       I: UpdateMemberRoleRequest,
       O: UpdateMemberRoleResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc vibesync.room.v1.RoomService.GrantPermissions
+     */
+    grantPermissions: {
+      name: "GrantPermissions",
+      I: GrantPermissionsRequest,
+      O: GrantPermissionsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc vibesync.room.v1.RoomService.GetMemberPermissions
+     */
+    getMemberPermissions: {
+      name: "GetMemberPermissions",
+      I: GetMemberPermissionsRequest,
+      O: GetMemberPermissionsResponse,
       kind: MethodKind.Unary,
     },
   }

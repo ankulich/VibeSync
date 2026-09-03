@@ -27,6 +27,7 @@ import (
 	"vibesync/apps/media-service/internal/infra/events"
 	"vibesync/apps/media-service/internal/infra/migrate"
 	"vibesync/apps/media-service/internal/infra/postgres"
+	"vibesync/apps/media-service/internal/infra/roomclient"
 	vbredis "vibesync/apps/media-service/internal/infra/redis"
 	"vibesync/apps/media-service/internal/infra/server"
 	vbconfig "vibesync/libs/config"
@@ -131,6 +132,7 @@ func run() error {
 		Pool:   pool,
 		Media:  postgres.NewMediaRepo(),
 		Queue:  postgres.NewQueueRepo(),
+		Perms:  roomclient.NewClient(http.DefaultClient, "http://"+cfg.RoomServiceAddr),
 		Outbox: postgres.NewOutboxWriter(),
 		Clock:  systemClock{},
 		IDGen:  ulidGen{},

@@ -12,12 +12,13 @@ import (
 
 // Config is the full Media Service configuration.
 type Config struct {
-	DB    DBConfig    `mapstructure:"db"`
-	Redis RedisConfig `mapstructure:"redis"`
-	Kafka KafkaConfig `mapstructure:"kafka"`
-	Web   WebConfig   `mapstructure:"web"`
-	Log   LogConfig   `mapstructure:"log"`
-	OTel  OTelConfig  `mapstructure:"otel"`
+	DB              DBConfig    `mapstructure:"db"`
+	Redis           RedisConfig `mapstructure:"redis"`
+	Kafka           KafkaConfig `mapstructure:"kafka"`
+	Web             WebConfig   `mapstructure:"web"`
+	Log             LogConfig   `mapstructure:"log"`
+	OTel            OTelConfig  `mapstructure:"otel"`
+	RoomServiceAddr string      `mapstructure:"room_service_addr"`
 }
 
 // DBConfig is the Postgres connection.
@@ -76,6 +77,7 @@ func Defaults() map[string]any {
 		"kafka.brokers":             []string{"localhost:9094"},
 		"web.addr":                  ":8085",
 		"web.rate_limit_per_second": 10,
+		"room_service_addr":         "localhost:8082",
 		"log.level":                 "info",
 		"log.format":                "json",
 		"otel.endpoint":             "localhost:4317",

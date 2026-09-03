@@ -462,6 +462,9 @@ services:
       # carried per-event in the outbox rows, not via config).
       VB_KAFKA_CONSUMER_TOPIC: room.created.v1
       VB_KAFKA_CONSUMER_GROUP_ID: sync-service
+      # Guest command authorization (ADR-0017): permission checks against
+      # the Room Service.
+      VB_ROOM_SERVICE_ADDR: room-service:8082
     ports:
       - "8083:8083"
     depends_on:
@@ -471,6 +474,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      room-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/healthz || exit 1"]
       interval: 10s
@@ -517,7 +522,10 @@ services:
     container_name: vibesync-media
     restart: unless-stopped
     networks: [vibesync]
-    environment: *go-env
+    environment:
+      <<: *go-env
+      # Queue permission checks against the Room Service (ADR-0017).
+      VB_ROOM_SERVICE_ADDR: room-service:8082
     ports:
       - "8085:8085"
     depends_on:
@@ -527,6 +535,8 @@ services:
         condition: service_healthy   # outbox relay leader lock
       kafka:
         condition: service_healthy   # producer + relay
+      room-service:
+        condition: service_healthy   # queue permissions
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8085/healthz || exit 1"]
       interval: 10s

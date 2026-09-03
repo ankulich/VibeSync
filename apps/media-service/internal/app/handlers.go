@@ -14,6 +14,7 @@ import (
 	commonv1 "vibesync/gen/go/vibesync/common/v1"
 	mediav1 "vibesync/gen/go/vibesync/media/v1"
 	mediav1connect "vibesync/gen/go/vibesync/media/v1/mediav1connect"
+	roomv1 "vibesync/gen/go/vibesync/room/v1"
 	vberr "vibesync/libs/errors"
 )
 
@@ -104,7 +105,8 @@ func (s *Service) ListMedia(ctx context.Context, req *connect.Request[mediav1.Li
 	}), nil
 }
 
-// AddToQueue appends a media item to a room's queue.
+// AddToQueue appends a media item to a room's queue. The room owner and
+// members granted ADD_QUEUE may add (ADR-0017).
 func (s *Service) AddToQueue(ctx context.Context, req *connect.Request[mediav1.AddToQueueRequest]) (*connect.Response[mediav1.AddToQueueResponse], error) {
 	if err := ctxDone(ctx); err != nil {
 		return nil, err
@@ -117,6 +119,9 @@ func (s *Service) AddToQueue(ctx context.Context, req *connect.Request[mediav1.A
 	mediaID := req.Msg.GetMediaId().GetValue()
 	if roomID == "" || mediaID == "" {
 		return nil, vberr.InvalidArgumentFor("vibesync.media", "MISSING_ID", "room_id and media_id required")
+	}
+	if err := s.requireQueuePermission(ctx, subject.UserID, roomID, roomv1.RoomPermission_ROOM_PERMISSION_ADD_QUEUE, "media.queue.add"); err != nil {
+		return nil, err
 	}
 	var item domain.QueueItem
 	err := s.withTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
@@ -135,6 +140,22 @@ func (s *Service) AddToQueue(ctx context.Context, req *connect.Request[mediav1.A
 		return nil, vberr.Internal("ADD_TO_QUEUE_FAILED", err.Error()).WithCause(err)
 	}
 	return connect.NewResponse(&mediav1.AddToQueueResponse{Item: queueItemToProto(item)}), nil
+}
+
+// requireQueuePermission enforces an owner-granted queue permission
+// (ADR-0017); the room owner passes every check.
+func (s *Service) requireQueuePermission(ctx context.Context, userID, roomID string, perm roomv1.RoomPermission, action string) error {
+	if userID == "" {
+		return vberr.Unauthenticated("MISSING_USER_ID")
+	}
+	allowed, err := s.perms.Has(ctx, roomID, userID, perm)
+	if err != nil {
+		return vberr.Internal("PERMISSION_CHECK_FAILED", err.Error()).WithCause(err)
+	}
+	if !allowed {
+		return vberr.PermissionDenied(action, "room:"+roomID)
+	}
+	return nil
 }
 
 // GetQueue lists the queue items for a room, ordered by position.
@@ -160,7 +181,8 @@ func (s *Service) GetQueue(ctx context.Context, req *connect.Request[mediav1.Get
 }
 
 // RemoveFromQueue removes the queue entry at the given position and renumbers
-// the remaining entries.
+// the remaining entries. The room owner and members granted REMOVE_QUEUE
+// may remove (ADR-0017).
 func (s *Service) RemoveFromQueue(ctx context.Context, req *connect.Request[mediav1.RemoveFromQueueRequest]) (*connect.Response[mediav1.RemoveFromQueueResponse], error) {
 	if err := ctxDone(ctx); err != nil {
 		return nil, err
@@ -171,6 +193,9 @@ func (s *Service) RemoveFromQueue(ctx context.Context, req *connect.Request[medi
 	}
 	roomID := req.Msg.GetRoomId().GetValue()
 	position := int(req.Msg.GetPosition())
+	if err := s.requireQueuePermission(ctx, subject.UserID, roomID, roomv1.RoomPermission_ROOM_PERMISSION_REMOVE_QUEUE, "media.queue.remove"); err != nil {
+		return nil, err
+	}
 	removed := false
 	err := s.withTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.queue.Remove(ctx, tx, roomID, position); err != nil {

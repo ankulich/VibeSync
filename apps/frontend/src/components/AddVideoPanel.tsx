@@ -6,6 +6,8 @@ import { ProviderName } from '../gen/vibesync/provider/v1/provider_pb';
 
 export interface AddVideoPanelProps {
   roomId: string;
+  /** Whether the local user may add to the queue (owner/grant, ADR-0017). */
+  canAdd?: boolean;
 }
 
 const VIDEO_ID_RE = /^[\w-]{11}$/;
@@ -44,7 +46,7 @@ export function parseYouTubeId(raw: string): string | null {
  * the way in; metadata (title/channel/cover) is resolved keyless via oEmbed
  * by the Provider Service.
  */
-export default function AddVideoPanel({ roomId }: AddVideoPanelProps) {
+export default function AddVideoPanel({ roomId, canAdd = true }: AddVideoPanelProps) {
   const [input, setInput] = useState('');
   const queryClient = useQueryClient();
 
@@ -108,11 +110,16 @@ export default function AddVideoPanel({ roomId }: AddVideoPanelProps) {
         <button
           type="submit"
           className="btn btn-primary shrink-0"
-          disabled={input.trim().length === 0 || addVideo.isPending}
+          disabled={!canAdd || input.trim().length === 0 || addVideo.isPending}
         >
           {addVideo.isPending ? '…' : 'Add'}
         </button>
       </form>
+      {!canAdd && (
+        <p className="text-xs text-gray-500">
+          Adding requires permission — ask the room owner to grant it.
+        </p>
+      )}
       {addVideo.isSuccess && (
         <p className="text-xs text-emerald-400">Added to queue ✓</p>
       )}

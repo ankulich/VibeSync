@@ -132,6 +132,7 @@ func run() error {
 		Rooms:   postgres.NewRoomRepo(),
 		Members: postgres.NewMemberRepo(),
 		Invites: postgres.NewInviteRepo(),
+		Perms:   postgres.NewPermissionRepo(),
 		Outbox:  postgres.NewOutboxWriter(),
 		Clock:   systemClock{},
 		IDGen:   ulidGen{},

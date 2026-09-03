@@ -10,9 +10,11 @@ export interface QueuePanelProps {
   mediaDetails: Record<string, Media>;
   /** Media id currently loaded in the player, if any. */
   currentMediaId?: string | null;
-  /** Whether the local user may issue playback commands (host). */
-  isHost?: boolean;
-  /** Loads a queued media into the room (host-only action). */
+  /** Whether the local user may switch queue items (host/owner/grant). */
+  canSwitch?: boolean;
+  /** Whether the local user may remove from the queue (owner/grant). */
+  canRemove?: boolean;
+  /** Loads a queued media into the room; undefined when not permitted. */
   onPlayNow?: (mediaId: string) => void;
 }
 
@@ -26,7 +28,8 @@ export default function QueuePanel({
   queueItems,
   mediaDetails,
   currentMediaId,
-  isHost = false,
+  canSwitch = true,
+  canRemove = true,
   onPlayNow,
 }: QueuePanelProps) {
   const queryClient = useQueryClient();
@@ -80,21 +83,21 @@ export default function QueuePanel({
               <button
                 type="button"
                 className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-surface-overlay hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!isHost || mediaId === ''}
+                disabled={!canSwitch || mediaId === ''}
                 onClick={() => onPlayNow(mediaId)}
                 aria-label="Play now"
-                title={isHost ? 'Play now' : 'Playback is controlled by the host'}
+                title={canSwitch ? 'Play now' : 'Switching requires the owner to grant permission'}
               >
                 ▶ Play
               </button>
             )}
             <button
               type="button"
-              className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-surface-overlay hover:text-red-300 disabled:opacity-50"
-              disabled={removing}
+              className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-surface-overlay hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={removing || !canRemove}
               onClick={() => removeMutation.mutate(item.position)}
               aria-label="Remove from queue"
-              title="Remove from queue"
+              title={canRemove ? 'Remove from queue' : 'Removing requires the owner to grant permission'}
             >
               {removing ? '…' : 'Remove'}
             </button>

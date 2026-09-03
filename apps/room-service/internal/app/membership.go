@@ -42,6 +42,10 @@ func (s *Service) LeaveRoom(ctx context.Context, req *connect.Request[roomv1.Lea
 		if err := s.members.Delete(ctx, tx, roomID, subject.UserID); err != nil {
 			return err
 		}
+		// Leaving revokes any grants.
+		if err := s.perms.Delete(ctx, tx, roomID, subject.UserID); err != nil {
+			return err
+		}
 		return s.members.IncrementRoomMemberCount(ctx, tx, roomID, -1)
 	})
 	if err != nil {
@@ -58,6 +62,7 @@ func (s *Service) GetMembers(ctx context.Context, req *connect.Request[roomv1.Ge
 	subject := subjectFromHeader(req.Header())
 	roomID := req.Msg.GetRoomId().GetValue()
 	var members []domain.Member
+	var memberPerms map[string]domain.Permissions
 	err := s.readTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		// Must be a member to view (or admin).
 		if subject.SystemRole < commonv1.SystemRole_SYSTEM_ROLE_ADMINISTRATOR {
@@ -70,6 +75,10 @@ func (s *Service) GetMembers(ctx context.Context, req *connect.Request[roomv1.Ge
 		}
 		var ferr error
 		members, ferr = s.members.List(ctx, tx, roomID)
+		if ferr != nil {
+			return ferr
+		}
+		memberPerms, ferr = s.memberPermissionsFor(ctx, tx, roomID)
 		return ferr
 	})
 	if err != nil {
@@ -81,6 +90,9 @@ func (s *Service) GetMembers(ctx context.Context, req *connect.Request[roomv1.Ge
 			UserId:   &commonv1.Id{Value: m.UserID},
 			Role:     m.Role,
 			JoinedAt: timestamppb.New(m.JoinedAt),
+			// The owner holds every permission implicitly and stores none;
+			// everyone else carries exactly their grants.
+			Permissions: memberPerms[m.UserID].ToProto(),
 		})
 	}
 	return connect.NewResponse(&roomv1.GetMembersResponse{Members: protoMembers}), nil
@@ -115,6 +127,10 @@ func (s *Service) KickMember(ctx context.Context, req *connect.Request[roomv1.Ki
 			return vberr.PermissionDenied("kick_member", "user:"+targetID)
 		}
 		if err := s.members.Delete(ctx, tx, roomID, targetID); err != nil {
+			return err
+		}
+		// Grants die with the membership.
+		if err := s.perms.Delete(ctx, tx, roomID, targetID); err != nil {
 			return err
 		}
 		if err := s.members.IncrementRoomMemberCount(ctx, tx, roomID, -1); err != nil {

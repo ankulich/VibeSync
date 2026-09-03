@@ -75,6 +75,73 @@ func (RoomVisibility) EnumDescriptor() ([]byte, []int) {
 	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{0}
 }
 
+// RoomPermission is a granular control grant the room owner can give a
+// member (ADR-0017). The owner — and the acting host — implicitly hold all
+// permissions; members hold exactly what they were granted.
+type RoomPermission int32
+
+const (
+	RoomPermission_ROOM_PERMISSION_UNSPECIFIED RoomPermission = 0
+	// Seek the room clock; a granted seek is authoritative and applies to
+	// every viewer, including the owner.
+	RoomPermission_ROOM_PERMISSION_SEEK RoomPermission = 1
+	// Pause and (re)start playback.
+	RoomPermission_ROOM_PERMISSION_PAUSE_PLAY RoomPermission = 2
+	// Switch the room to another queue item (load / next / previous).
+	RoomPermission_ROOM_PERMISSION_SWITCH_QUEUE RoomPermission = 3
+	// Add media to the room queue.
+	RoomPermission_ROOM_PERMISSION_ADD_QUEUE RoomPermission = 4
+	// Remove media from the room queue.
+	RoomPermission_ROOM_PERMISSION_REMOVE_QUEUE RoomPermission = 5
+)
+
+// Enum value maps for RoomPermission.
+var (
+	RoomPermission_name = map[int32]string{
+		0: "ROOM_PERMISSION_UNSPECIFIED",
+		1: "ROOM_PERMISSION_SEEK",
+		2: "ROOM_PERMISSION_PAUSE_PLAY",
+		3: "ROOM_PERMISSION_SWITCH_QUEUE",
+		4: "ROOM_PERMISSION_ADD_QUEUE",
+		5: "ROOM_PERMISSION_REMOVE_QUEUE",
+	}
+	RoomPermission_value = map[string]int32{
+		"ROOM_PERMISSION_UNSPECIFIED":  0,
+		"ROOM_PERMISSION_SEEK":         1,
+		"ROOM_PERMISSION_PAUSE_PLAY":   2,
+		"ROOM_PERMISSION_SWITCH_QUEUE": 3,
+		"ROOM_PERMISSION_ADD_QUEUE":    4,
+		"ROOM_PERMISSION_REMOVE_QUEUE": 5,
+	}
+)
+
+func (x RoomPermission) Enum() *RoomPermission {
+	p := new(RoomPermission)
+	*p = x
+	return p
+}
+
+func (x RoomPermission) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RoomPermission) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibesync_room_v1_room_proto_enumTypes[1].Descriptor()
+}
+
+func (RoomPermission) Type() protoreflect.EnumType {
+	return &file_vibesync_room_v1_room_proto_enumTypes[1]
+}
+
+func (x RoomPermission) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RoomPermission.Descriptor instead.
+func (RoomPermission) EnumDescriptor() ([]byte, []int) {
+	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{1}
+}
+
 type Room struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *v1.Id                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -192,12 +259,14 @@ func (x *Room) GetUpdatedAt() *timestamppb.Timestamp {
 }
 
 // Member is a user's membership in a room. Returned by GetMembers and used
-// for role management.
+// for role management. Permissions are the owner-granted control grants;
+// the owner row itself carries none (the owner implicitly holds all).
 type Member struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        *v1.Id                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Role          v1.RoomRole            `protobuf:"varint,2,opt,name=role,proto3,enum=vibesync.common.v1.RoomRole" json:"role,omitempty"`
 	JoinedAt      *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=joined_at,json=joinedAt,proto3" json:"joined_at,omitempty"`
+	Permissions   []RoomPermission       `protobuf:"varint,4,rep,packed,name=permissions,proto3,enum=vibesync.room.v1.RoomPermission" json:"permissions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -249,6 +318,13 @@ func (x *Member) GetRole() v1.RoomRole {
 func (x *Member) GetJoinedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.JoinedAt
+	}
+	return nil
+}
+
+func (x *Member) GetPermissions() []RoomPermission {
+	if x != nil {
+		return x.Permissions
 	}
 	return nil
 }
@@ -1283,6 +1359,218 @@ func (x *UpdateMemberRoleResponse) GetMember() *Member {
 	return nil
 }
 
+// GrantPermissions replaces a member's permission set. Owner only; an empty
+// list revokes everything.
+type GrantPermissionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoomId        *v1.Id                 `protobuf:"bytes,1,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
+	UserId        *v1.Id                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Permissions   []RoomPermission       `protobuf:"varint,3,rep,packed,name=permissions,proto3,enum=vibesync.room.v1.RoomPermission" json:"permissions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantPermissionsRequest) Reset() {
+	*x = GrantPermissionsRequest{}
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantPermissionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantPermissionsRequest) ProtoMessage() {}
+
+func (x *GrantPermissionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrantPermissionsRequest.ProtoReflect.Descriptor instead.
+func (*GrantPermissionsRequest) Descriptor() ([]byte, []int) {
+	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GrantPermissionsRequest) GetRoomId() *v1.Id {
+	if x != nil {
+		return x.RoomId
+	}
+	return nil
+}
+
+func (x *GrantPermissionsRequest) GetUserId() *v1.Id {
+	if x != nil {
+		return x.UserId
+	}
+	return nil
+}
+
+func (x *GrantPermissionsRequest) GetPermissions() []RoomPermission {
+	if x != nil {
+		return x.Permissions
+	}
+	return nil
+}
+
+type GrantPermissionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Permissions   []RoomPermission       `protobuf:"varint,1,rep,packed,name=permissions,proto3,enum=vibesync.room.v1.RoomPermission" json:"permissions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantPermissionsResponse) Reset() {
+	*x = GrantPermissionsResponse{}
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantPermissionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantPermissionsResponse) ProtoMessage() {}
+
+func (x *GrantPermissionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrantPermissionsResponse.ProtoReflect.Descriptor instead.
+func (*GrantPermissionsResponse) Descriptor() ([]byte, []int) {
+	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GrantPermissionsResponse) GetPermissions() []RoomPermission {
+	if x != nil {
+		return x.Permissions
+	}
+	return nil
+}
+
+// GetMemberPermissions answers a single member's effective grants. Used by
+// the Sync and Media Services for command/queue authorization and by the UI.
+type GetMemberPermissionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoomId        *v1.Id                 `protobuf:"bytes,1,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
+	UserId        *v1.Id                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMemberPermissionsRequest) Reset() {
+	*x = GetMemberPermissionsRequest{}
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMemberPermissionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMemberPermissionsRequest) ProtoMessage() {}
+
+func (x *GetMemberPermissionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMemberPermissionsRequest.ProtoReflect.Descriptor instead.
+func (*GetMemberPermissionsRequest) Descriptor() ([]byte, []int) {
+	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GetMemberPermissionsRequest) GetRoomId() *v1.Id {
+	if x != nil {
+		return x.RoomId
+	}
+	return nil
+}
+
+func (x *GetMemberPermissionsRequest) GetUserId() *v1.Id {
+	if x != nil {
+		return x.UserId
+	}
+	return nil
+}
+
+type GetMemberPermissionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Permissions   []RoomPermission       `protobuf:"varint,1,rep,packed,name=permissions,proto3,enum=vibesync.room.v1.RoomPermission" json:"permissions,omitempty"`
+	IsOwner       bool                   `protobuf:"varint,2,opt,name=is_owner,json=isOwner,proto3" json:"is_owner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMemberPermissionsResponse) Reset() {
+	*x = GetMemberPermissionsResponse{}
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMemberPermissionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMemberPermissionsResponse) ProtoMessage() {}
+
+func (x *GetMemberPermissionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vibesync_room_v1_room_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMemberPermissionsResponse.ProtoReflect.Descriptor instead.
+func (*GetMemberPermissionsResponse) Descriptor() ([]byte, []int) {
+	return file_vibesync_room_v1_room_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetMemberPermissionsResponse) GetPermissions() []RoomPermission {
+	if x != nil {
+		return x.Permissions
+	}
+	return nil
+}
+
+func (x *GetMemberPermissionsResponse) GetIsOwner() bool {
+	if x != nil {
+		return x.IsOwner
+	}
+	return false
+}
+
 var File_vibesync_room_v1_room_proto protoreflect.FileDescriptor
 
 const file_vibesync_room_v1_room_proto_rawDesc = "" +
@@ -1304,11 +1592,12 @@ const file_vibesync_room_v1_room_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xa4\x01\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xe8\x01\n" +
 	"\x06Member\x12/\n" +
 	"\auser_id\x18\x01 \x01(\v2\x16.vibesync.common.v1.IdR\x06userId\x120\n" +
 	"\x04role\x18\x02 \x01(\x0e2\x1c.vibesync.common.v1.RoomRoleR\x04role\x127\n" +
-	"\tjoined_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\"\xd6\x01\n" +
+	"\tjoined_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\x12B\n" +
+	"\vpermissions\x18\x04 \x03(\x0e2 .vibesync.room.v1.RoomPermissionR\vpermissions\"\xd6\x01\n" +
 	"\x11CreateRoomRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\vdescription\x18\x02 \x01(\tH\x00R\vdescription\x88\x01\x01\x12@\n" +
@@ -1382,12 +1671,31 @@ const file_vibesync_room_v1_room_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\v2\x16.vibesync.common.v1.IdR\x06userId\x120\n" +
 	"\x04role\x18\x03 \x01(\x0e2\x1c.vibesync.common.v1.RoomRoleR\x04role\"L\n" +
 	"\x18UpdateMemberRoleResponse\x120\n" +
-	"\x06member\x18\x01 \x01(\v2\x18.vibesync.room.v1.MemberR\x06member*\x88\x01\n" +
+	"\x06member\x18\x01 \x01(\v2\x18.vibesync.room.v1.MemberR\x06member\"\xbf\x01\n" +
+	"\x17GrantPermissionsRequest\x12/\n" +
+	"\aroom_id\x18\x01 \x01(\v2\x16.vibesync.common.v1.IdR\x06roomId\x12/\n" +
+	"\auser_id\x18\x02 \x01(\v2\x16.vibesync.common.v1.IdR\x06userId\x12B\n" +
+	"\vpermissions\x18\x03 \x03(\x0e2 .vibesync.room.v1.RoomPermissionR\vpermissions\"^\n" +
+	"\x18GrantPermissionsResponse\x12B\n" +
+	"\vpermissions\x18\x01 \x03(\x0e2 .vibesync.room.v1.RoomPermissionR\vpermissions\"\x7f\n" +
+	"\x1bGetMemberPermissionsRequest\x12/\n" +
+	"\aroom_id\x18\x01 \x01(\v2\x16.vibesync.common.v1.IdR\x06roomId\x12/\n" +
+	"\auser_id\x18\x02 \x01(\v2\x16.vibesync.common.v1.IdR\x06userId\"}\n" +
+	"\x1cGetMemberPermissionsResponse\x12B\n" +
+	"\vpermissions\x18\x01 \x03(\x0e2 .vibesync.room.v1.RoomPermissionR\vpermissions\x12\x19\n" +
+	"\bis_owner\x18\x02 \x01(\bR\aisOwner*\x88\x01\n" +
 	"\x0eRoomVisibility\x12\x1f\n" +
 	"\x1bROOM_VISIBILITY_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16ROOM_VISIBILITY_PUBLIC\x10\x01\x12\x1c\n" +
 	"\x18ROOM_VISIBILITY_UNLISTED\x10\x02\x12\x1b\n" +
-	"\x17ROOM_VISIBILITY_PRIVATE\x10\x032\x84\a\n" +
+	"\x17ROOM_VISIBILITY_PRIVATE\x10\x03*\xce\x01\n" +
+	"\x0eRoomPermission\x12\x1f\n" +
+	"\x1bROOM_PERMISSION_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14ROOM_PERMISSION_SEEK\x10\x01\x12\x1e\n" +
+	"\x1aROOM_PERMISSION_PAUSE_PLAY\x10\x02\x12 \n" +
+	"\x1cROOM_PERMISSION_SWITCH_QUEUE\x10\x03\x12\x1d\n" +
+	"\x19ROOM_PERMISSION_ADD_QUEUE\x10\x04\x12 \n" +
+	"\x1cROOM_PERMISSION_REMOVE_QUEUE\x10\x052\xe6\b\n" +
 	"\vRoomService\x12W\n" +
 	"\n" +
 	"CreateRoom\x12#.vibesync.room.v1.CreateRoomRequest\x1a$.vibesync.room.v1.CreateRoomResponse\x12N\n" +
@@ -1403,7 +1711,9 @@ const file_vibesync_room_v1_room_proto_rawDesc = "" +
 	"GetMembers\x12#.vibesync.room.v1.GetMembersRequest\x1a$.vibesync.room.v1.GetMembersResponse\x12W\n" +
 	"\n" +
 	"KickMember\x12#.vibesync.room.v1.KickMemberRequest\x1a$.vibesync.room.v1.KickMemberResponse\x12i\n" +
-	"\x10UpdateMemberRole\x12).vibesync.room.v1.UpdateMemberRoleRequest\x1a*.vibesync.room.v1.UpdateMemberRoleResponseB\xac\x01\n" +
+	"\x10UpdateMemberRole\x12).vibesync.room.v1.UpdateMemberRoleRequest\x1a*.vibesync.room.v1.UpdateMemberRoleResponse\x12i\n" +
+	"\x10GrantPermissions\x12).vibesync.room.v1.GrantPermissionsRequest\x1a*.vibesync.room.v1.GrantPermissionsResponse\x12u\n" +
+	"\x14GetMemberPermissions\x12-.vibesync.room.v1.GetMemberPermissionsRequest\x1a..vibesync.room.v1.GetMemberPermissionsResponseB\xac\x01\n" +
 	"\x14com.vibesync.room.v1B\tRoomProtoP\x01Z'vibesync/gen/go/vibesync/room/v1;roomv1\xa2\x02\x03VRX\xaa\x02\x10Vibesync.Room.V1\xca\x02\x10Vibesync\\Room\\V1\xe2\x02\x1cVibesync\\Room\\V1\\GPBMetadata\xea\x02\x12Vibesync::Room::V1b\x06proto3"
 
 var (
@@ -1418,96 +1728,113 @@ func file_vibesync_room_v1_room_proto_rawDescGZIP() []byte {
 	return file_vibesync_room_v1_room_proto_rawDescData
 }
 
-var file_vibesync_room_v1_room_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_vibesync_room_v1_room_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_vibesync_room_v1_room_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_vibesync_room_v1_room_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_vibesync_room_v1_room_proto_goTypes = []any{
-	(RoomVisibility)(0),              // 0: vibesync.room.v1.RoomVisibility
-	(*Room)(nil),                     // 1: vibesync.room.v1.Room
-	(*Member)(nil),                   // 2: vibesync.room.v1.Member
-	(*CreateRoomRequest)(nil),        // 3: vibesync.room.v1.CreateRoomRequest
-	(*CreateRoomResponse)(nil),       // 4: vibesync.room.v1.CreateRoomResponse
-	(*GetRoomRequest)(nil),           // 5: vibesync.room.v1.GetRoomRequest
-	(*GetRoomResponse)(nil),          // 6: vibesync.room.v1.GetRoomResponse
-	(*ListRoomsRequest)(nil),         // 7: vibesync.room.v1.ListRoomsRequest
-	(*ListRoomsResponse)(nil),        // 8: vibesync.room.v1.ListRoomsResponse
-	(*JoinRoomRequest)(nil),          // 9: vibesync.room.v1.JoinRoomRequest
-	(*JoinRoomResponse)(nil),         // 10: vibesync.room.v1.JoinRoomResponse
-	(*UpdateRoomRequest)(nil),        // 11: vibesync.room.v1.UpdateRoomRequest
-	(*UpdateRoomResponse)(nil),       // 12: vibesync.room.v1.UpdateRoomResponse
-	(*DeleteRoomRequest)(nil),        // 13: vibesync.room.v1.DeleteRoomRequest
-	(*DeleteRoomResponse)(nil),       // 14: vibesync.room.v1.DeleteRoomResponse
-	(*LeaveRoomRequest)(nil),         // 15: vibesync.room.v1.LeaveRoomRequest
-	(*LeaveRoomResponse)(nil),        // 16: vibesync.room.v1.LeaveRoomResponse
-	(*GetMembersRequest)(nil),        // 17: vibesync.room.v1.GetMembersRequest
-	(*GetMembersResponse)(nil),       // 18: vibesync.room.v1.GetMembersResponse
-	(*KickMemberRequest)(nil),        // 19: vibesync.room.v1.KickMemberRequest
-	(*KickMemberResponse)(nil),       // 20: vibesync.room.v1.KickMemberResponse
-	(*UpdateMemberRoleRequest)(nil),  // 21: vibesync.room.v1.UpdateMemberRoleRequest
-	(*UpdateMemberRoleResponse)(nil), // 22: vibesync.room.v1.UpdateMemberRoleResponse
-	(*v1.Id)(nil),                    // 23: vibesync.common.v1.Id
-	(*timestamppb.Timestamp)(nil),    // 24: google.protobuf.Timestamp
-	(v1.RoomRole)(0),                 // 25: vibesync.common.v1.RoomRole
-	(*v1.PageRequest)(nil),           // 26: vibesync.common.v1.PageRequest
-	(*v1.PageResponse)(nil),          // 27: vibesync.common.v1.PageResponse
+	(RoomVisibility)(0),                  // 0: vibesync.room.v1.RoomVisibility
+	(RoomPermission)(0),                  // 1: vibesync.room.v1.RoomPermission
+	(*Room)(nil),                         // 2: vibesync.room.v1.Room
+	(*Member)(nil),                       // 3: vibesync.room.v1.Member
+	(*CreateRoomRequest)(nil),            // 4: vibesync.room.v1.CreateRoomRequest
+	(*CreateRoomResponse)(nil),           // 5: vibesync.room.v1.CreateRoomResponse
+	(*GetRoomRequest)(nil),               // 6: vibesync.room.v1.GetRoomRequest
+	(*GetRoomResponse)(nil),              // 7: vibesync.room.v1.GetRoomResponse
+	(*ListRoomsRequest)(nil),             // 8: vibesync.room.v1.ListRoomsRequest
+	(*ListRoomsResponse)(nil),            // 9: vibesync.room.v1.ListRoomsResponse
+	(*JoinRoomRequest)(nil),              // 10: vibesync.room.v1.JoinRoomRequest
+	(*JoinRoomResponse)(nil),             // 11: vibesync.room.v1.JoinRoomResponse
+	(*UpdateRoomRequest)(nil),            // 12: vibesync.room.v1.UpdateRoomRequest
+	(*UpdateRoomResponse)(nil),           // 13: vibesync.room.v1.UpdateRoomResponse
+	(*DeleteRoomRequest)(nil),            // 14: vibesync.room.v1.DeleteRoomRequest
+	(*DeleteRoomResponse)(nil),           // 15: vibesync.room.v1.DeleteRoomResponse
+	(*LeaveRoomRequest)(nil),             // 16: vibesync.room.v1.LeaveRoomRequest
+	(*LeaveRoomResponse)(nil),            // 17: vibesync.room.v1.LeaveRoomResponse
+	(*GetMembersRequest)(nil),            // 18: vibesync.room.v1.GetMembersRequest
+	(*GetMembersResponse)(nil),           // 19: vibesync.room.v1.GetMembersResponse
+	(*KickMemberRequest)(nil),            // 20: vibesync.room.v1.KickMemberRequest
+	(*KickMemberResponse)(nil),           // 21: vibesync.room.v1.KickMemberResponse
+	(*UpdateMemberRoleRequest)(nil),      // 22: vibesync.room.v1.UpdateMemberRoleRequest
+	(*UpdateMemberRoleResponse)(nil),     // 23: vibesync.room.v1.UpdateMemberRoleResponse
+	(*GrantPermissionsRequest)(nil),      // 24: vibesync.room.v1.GrantPermissionsRequest
+	(*GrantPermissionsResponse)(nil),     // 25: vibesync.room.v1.GrantPermissionsResponse
+	(*GetMemberPermissionsRequest)(nil),  // 26: vibesync.room.v1.GetMemberPermissionsRequest
+	(*GetMemberPermissionsResponse)(nil), // 27: vibesync.room.v1.GetMemberPermissionsResponse
+	(*v1.Id)(nil),                        // 28: vibesync.common.v1.Id
+	(*timestamppb.Timestamp)(nil),        // 29: google.protobuf.Timestamp
+	(v1.RoomRole)(0),                     // 30: vibesync.common.v1.RoomRole
+	(*v1.PageRequest)(nil),               // 31: vibesync.common.v1.PageRequest
+	(*v1.PageResponse)(nil),              // 32: vibesync.common.v1.PageResponse
 }
 var file_vibesync_room_v1_room_proto_depIdxs = []int32{
-	23, // 0: vibesync.room.v1.Room.id:type_name -> vibesync.common.v1.Id
+	28, // 0: vibesync.room.v1.Room.id:type_name -> vibesync.common.v1.Id
 	0,  // 1: vibesync.room.v1.Room.visibility:type_name -> vibesync.room.v1.RoomVisibility
-	23, // 2: vibesync.room.v1.Room.owner_id:type_name -> vibesync.common.v1.Id
-	24, // 3: vibesync.room.v1.Room.created_at:type_name -> google.protobuf.Timestamp
-	24, // 4: vibesync.room.v1.Room.updated_at:type_name -> google.protobuf.Timestamp
-	23, // 5: vibesync.room.v1.Member.user_id:type_name -> vibesync.common.v1.Id
-	25, // 6: vibesync.room.v1.Member.role:type_name -> vibesync.common.v1.RoomRole
-	24, // 7: vibesync.room.v1.Member.joined_at:type_name -> google.protobuf.Timestamp
-	0,  // 8: vibesync.room.v1.CreateRoomRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
-	1,  // 9: vibesync.room.v1.CreateRoomResponse.room:type_name -> vibesync.room.v1.Room
-	23, // 10: vibesync.room.v1.GetRoomRequest.id:type_name -> vibesync.common.v1.Id
-	1,  // 11: vibesync.room.v1.GetRoomResponse.room:type_name -> vibesync.room.v1.Room
-	26, // 12: vibesync.room.v1.ListRoomsRequest.page:type_name -> vibesync.common.v1.PageRequest
-	0,  // 13: vibesync.room.v1.ListRoomsRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
-	1,  // 14: vibesync.room.v1.ListRoomsResponse.rooms:type_name -> vibesync.room.v1.Room
-	27, // 15: vibesync.room.v1.ListRoomsResponse.page:type_name -> vibesync.common.v1.PageResponse
-	23, // 16: vibesync.room.v1.JoinRoomRequest.room_id:type_name -> vibesync.common.v1.Id
-	1,  // 17: vibesync.room.v1.JoinRoomResponse.room:type_name -> vibesync.room.v1.Room
-	25, // 18: vibesync.room.v1.JoinRoomResponse.assigned_role:type_name -> vibesync.common.v1.RoomRole
-	23, // 19: vibesync.room.v1.UpdateRoomRequest.id:type_name -> vibesync.common.v1.Id
-	0,  // 20: vibesync.room.v1.UpdateRoomRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
-	1,  // 21: vibesync.room.v1.UpdateRoomResponse.room:type_name -> vibesync.room.v1.Room
-	23, // 22: vibesync.room.v1.DeleteRoomRequest.id:type_name -> vibesync.common.v1.Id
-	23, // 23: vibesync.room.v1.LeaveRoomRequest.room_id:type_name -> vibesync.common.v1.Id
-	23, // 24: vibesync.room.v1.GetMembersRequest.room_id:type_name -> vibesync.common.v1.Id
-	2,  // 25: vibesync.room.v1.GetMembersResponse.members:type_name -> vibesync.room.v1.Member
-	23, // 26: vibesync.room.v1.KickMemberRequest.room_id:type_name -> vibesync.common.v1.Id
-	23, // 27: vibesync.room.v1.KickMemberRequest.user_id:type_name -> vibesync.common.v1.Id
-	23, // 28: vibesync.room.v1.UpdateMemberRoleRequest.room_id:type_name -> vibesync.common.v1.Id
-	23, // 29: vibesync.room.v1.UpdateMemberRoleRequest.user_id:type_name -> vibesync.common.v1.Id
-	25, // 30: vibesync.room.v1.UpdateMemberRoleRequest.role:type_name -> vibesync.common.v1.RoomRole
-	2,  // 31: vibesync.room.v1.UpdateMemberRoleResponse.member:type_name -> vibesync.room.v1.Member
-	3,  // 32: vibesync.room.v1.RoomService.CreateRoom:input_type -> vibesync.room.v1.CreateRoomRequest
-	5,  // 33: vibesync.room.v1.RoomService.GetRoom:input_type -> vibesync.room.v1.GetRoomRequest
-	7,  // 34: vibesync.room.v1.RoomService.ListRooms:input_type -> vibesync.room.v1.ListRoomsRequest
-	9,  // 35: vibesync.room.v1.RoomService.JoinRoom:input_type -> vibesync.room.v1.JoinRoomRequest
-	11, // 36: vibesync.room.v1.RoomService.UpdateRoom:input_type -> vibesync.room.v1.UpdateRoomRequest
-	13, // 37: vibesync.room.v1.RoomService.DeleteRoom:input_type -> vibesync.room.v1.DeleteRoomRequest
-	15, // 38: vibesync.room.v1.RoomService.LeaveRoom:input_type -> vibesync.room.v1.LeaveRoomRequest
-	17, // 39: vibesync.room.v1.RoomService.GetMembers:input_type -> vibesync.room.v1.GetMembersRequest
-	19, // 40: vibesync.room.v1.RoomService.KickMember:input_type -> vibesync.room.v1.KickMemberRequest
-	21, // 41: vibesync.room.v1.RoomService.UpdateMemberRole:input_type -> vibesync.room.v1.UpdateMemberRoleRequest
-	4,  // 42: vibesync.room.v1.RoomService.CreateRoom:output_type -> vibesync.room.v1.CreateRoomResponse
-	6,  // 43: vibesync.room.v1.RoomService.GetRoom:output_type -> vibesync.room.v1.GetRoomResponse
-	8,  // 44: vibesync.room.v1.RoomService.ListRooms:output_type -> vibesync.room.v1.ListRoomsResponse
-	10, // 45: vibesync.room.v1.RoomService.JoinRoom:output_type -> vibesync.room.v1.JoinRoomResponse
-	12, // 46: vibesync.room.v1.RoomService.UpdateRoom:output_type -> vibesync.room.v1.UpdateRoomResponse
-	14, // 47: vibesync.room.v1.RoomService.DeleteRoom:output_type -> vibesync.room.v1.DeleteRoomResponse
-	16, // 48: vibesync.room.v1.RoomService.LeaveRoom:output_type -> vibesync.room.v1.LeaveRoomResponse
-	18, // 49: vibesync.room.v1.RoomService.GetMembers:output_type -> vibesync.room.v1.GetMembersResponse
-	20, // 50: vibesync.room.v1.RoomService.KickMember:output_type -> vibesync.room.v1.KickMemberResponse
-	22, // 51: vibesync.room.v1.RoomService.UpdateMemberRole:output_type -> vibesync.room.v1.UpdateMemberRoleResponse
-	42, // [42:52] is the sub-list for method output_type
-	32, // [32:42] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	28, // 2: vibesync.room.v1.Room.owner_id:type_name -> vibesync.common.v1.Id
+	29, // 3: vibesync.room.v1.Room.created_at:type_name -> google.protobuf.Timestamp
+	29, // 4: vibesync.room.v1.Room.updated_at:type_name -> google.protobuf.Timestamp
+	28, // 5: vibesync.room.v1.Member.user_id:type_name -> vibesync.common.v1.Id
+	30, // 6: vibesync.room.v1.Member.role:type_name -> vibesync.common.v1.RoomRole
+	29, // 7: vibesync.room.v1.Member.joined_at:type_name -> google.protobuf.Timestamp
+	1,  // 8: vibesync.room.v1.Member.permissions:type_name -> vibesync.room.v1.RoomPermission
+	0,  // 9: vibesync.room.v1.CreateRoomRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
+	2,  // 10: vibesync.room.v1.CreateRoomResponse.room:type_name -> vibesync.room.v1.Room
+	28, // 11: vibesync.room.v1.GetRoomRequest.id:type_name -> vibesync.common.v1.Id
+	2,  // 12: vibesync.room.v1.GetRoomResponse.room:type_name -> vibesync.room.v1.Room
+	31, // 13: vibesync.room.v1.ListRoomsRequest.page:type_name -> vibesync.common.v1.PageRequest
+	0,  // 14: vibesync.room.v1.ListRoomsRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
+	2,  // 15: vibesync.room.v1.ListRoomsResponse.rooms:type_name -> vibesync.room.v1.Room
+	32, // 16: vibesync.room.v1.ListRoomsResponse.page:type_name -> vibesync.common.v1.PageResponse
+	28, // 17: vibesync.room.v1.JoinRoomRequest.room_id:type_name -> vibesync.common.v1.Id
+	2,  // 18: vibesync.room.v1.JoinRoomResponse.room:type_name -> vibesync.room.v1.Room
+	30, // 19: vibesync.room.v1.JoinRoomResponse.assigned_role:type_name -> vibesync.common.v1.RoomRole
+	28, // 20: vibesync.room.v1.UpdateRoomRequest.id:type_name -> vibesync.common.v1.Id
+	0,  // 21: vibesync.room.v1.UpdateRoomRequest.visibility:type_name -> vibesync.room.v1.RoomVisibility
+	2,  // 22: vibesync.room.v1.UpdateRoomResponse.room:type_name -> vibesync.room.v1.Room
+	28, // 23: vibesync.room.v1.DeleteRoomRequest.id:type_name -> vibesync.common.v1.Id
+	28, // 24: vibesync.room.v1.LeaveRoomRequest.room_id:type_name -> vibesync.common.v1.Id
+	28, // 25: vibesync.room.v1.GetMembersRequest.room_id:type_name -> vibesync.common.v1.Id
+	3,  // 26: vibesync.room.v1.GetMembersResponse.members:type_name -> vibesync.room.v1.Member
+	28, // 27: vibesync.room.v1.KickMemberRequest.room_id:type_name -> vibesync.common.v1.Id
+	28, // 28: vibesync.room.v1.KickMemberRequest.user_id:type_name -> vibesync.common.v1.Id
+	28, // 29: vibesync.room.v1.UpdateMemberRoleRequest.room_id:type_name -> vibesync.common.v1.Id
+	28, // 30: vibesync.room.v1.UpdateMemberRoleRequest.user_id:type_name -> vibesync.common.v1.Id
+	30, // 31: vibesync.room.v1.UpdateMemberRoleRequest.role:type_name -> vibesync.common.v1.RoomRole
+	3,  // 32: vibesync.room.v1.UpdateMemberRoleResponse.member:type_name -> vibesync.room.v1.Member
+	28, // 33: vibesync.room.v1.GrantPermissionsRequest.room_id:type_name -> vibesync.common.v1.Id
+	28, // 34: vibesync.room.v1.GrantPermissionsRequest.user_id:type_name -> vibesync.common.v1.Id
+	1,  // 35: vibesync.room.v1.GrantPermissionsRequest.permissions:type_name -> vibesync.room.v1.RoomPermission
+	1,  // 36: vibesync.room.v1.GrantPermissionsResponse.permissions:type_name -> vibesync.room.v1.RoomPermission
+	28, // 37: vibesync.room.v1.GetMemberPermissionsRequest.room_id:type_name -> vibesync.common.v1.Id
+	28, // 38: vibesync.room.v1.GetMemberPermissionsRequest.user_id:type_name -> vibesync.common.v1.Id
+	1,  // 39: vibesync.room.v1.GetMemberPermissionsResponse.permissions:type_name -> vibesync.room.v1.RoomPermission
+	4,  // 40: vibesync.room.v1.RoomService.CreateRoom:input_type -> vibesync.room.v1.CreateRoomRequest
+	6,  // 41: vibesync.room.v1.RoomService.GetRoom:input_type -> vibesync.room.v1.GetRoomRequest
+	8,  // 42: vibesync.room.v1.RoomService.ListRooms:input_type -> vibesync.room.v1.ListRoomsRequest
+	10, // 43: vibesync.room.v1.RoomService.JoinRoom:input_type -> vibesync.room.v1.JoinRoomRequest
+	12, // 44: vibesync.room.v1.RoomService.UpdateRoom:input_type -> vibesync.room.v1.UpdateRoomRequest
+	14, // 45: vibesync.room.v1.RoomService.DeleteRoom:input_type -> vibesync.room.v1.DeleteRoomRequest
+	16, // 46: vibesync.room.v1.RoomService.LeaveRoom:input_type -> vibesync.room.v1.LeaveRoomRequest
+	18, // 47: vibesync.room.v1.RoomService.GetMembers:input_type -> vibesync.room.v1.GetMembersRequest
+	20, // 48: vibesync.room.v1.RoomService.KickMember:input_type -> vibesync.room.v1.KickMemberRequest
+	22, // 49: vibesync.room.v1.RoomService.UpdateMemberRole:input_type -> vibesync.room.v1.UpdateMemberRoleRequest
+	24, // 50: vibesync.room.v1.RoomService.GrantPermissions:input_type -> vibesync.room.v1.GrantPermissionsRequest
+	26, // 51: vibesync.room.v1.RoomService.GetMemberPermissions:input_type -> vibesync.room.v1.GetMemberPermissionsRequest
+	5,  // 52: vibesync.room.v1.RoomService.CreateRoom:output_type -> vibesync.room.v1.CreateRoomResponse
+	7,  // 53: vibesync.room.v1.RoomService.GetRoom:output_type -> vibesync.room.v1.GetRoomResponse
+	9,  // 54: vibesync.room.v1.RoomService.ListRooms:output_type -> vibesync.room.v1.ListRoomsResponse
+	11, // 55: vibesync.room.v1.RoomService.JoinRoom:output_type -> vibesync.room.v1.JoinRoomResponse
+	13, // 56: vibesync.room.v1.RoomService.UpdateRoom:output_type -> vibesync.room.v1.UpdateRoomResponse
+	15, // 57: vibesync.room.v1.RoomService.DeleteRoom:output_type -> vibesync.room.v1.DeleteRoomResponse
+	17, // 58: vibesync.room.v1.RoomService.LeaveRoom:output_type -> vibesync.room.v1.LeaveRoomResponse
+	19, // 59: vibesync.room.v1.RoomService.GetMembers:output_type -> vibesync.room.v1.GetMembersResponse
+	21, // 60: vibesync.room.v1.RoomService.KickMember:output_type -> vibesync.room.v1.KickMemberResponse
+	23, // 61: vibesync.room.v1.RoomService.UpdateMemberRole:output_type -> vibesync.room.v1.UpdateMemberRoleResponse
+	25, // 62: vibesync.room.v1.RoomService.GrantPermissions:output_type -> vibesync.room.v1.GrantPermissionsResponse
+	27, // 63: vibesync.room.v1.RoomService.GetMemberPermissions:output_type -> vibesync.room.v1.GetMemberPermissionsResponse
+	52, // [52:64] is the sub-list for method output_type
+	40, // [40:52] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_vibesync_room_v1_room_proto_init() }
@@ -1528,8 +1855,8 @@ func file_vibesync_room_v1_room_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibesync_room_v1_room_proto_rawDesc), len(file_vibesync_room_v1_room_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   22,
+			NumEnums:      2,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
